@@ -368,7 +368,6 @@ class TestTtest(object):
     """
     Test individual t-tests.  Ie., are the coefficients significantly
     different than zero.
-
         """
     @classmethod
     def setup_class(cls):
@@ -1344,3 +1343,21 @@ def test_sqrt_lasso():
         # Regression test the parameters
         assert_allclose(rslt.params[0:5], expected_params[refit],
                 rtol=1e-5, atol=1e-5)
+
+
+def test_bool_regressor(reset_randomstate):
+    exog = np.random.randint(0, 2, size=(100, 2)).astype(bool)
+    endog = np.random.standard_normal(100)
+    bool_res = OLS(endog, exog).fit()
+    res = OLS(endog, exog.astype(np.double)).fit()
+    assert_allclose(bool_res.params, res.params)
+
+
+def test_ols_constant(reset_randomstate):
+    y = np.random.standard_normal((200))
+    x = np.ones((200, 1))
+    res = OLS(y, x).fit()
+    with pytest.warns(None) as recording:
+        assert np.isnan(res.fvalue)
+        assert np.isnan(res.f_pvalue)
+    assert len(recording) == 0

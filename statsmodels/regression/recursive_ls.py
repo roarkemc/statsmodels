@@ -59,7 +59,6 @@ class RecursiveLS(MLEModel):
     .. [*] Durbin, James, and Siem Jan Koopman. 2012.
        Time Series Analysis by State Space Methods: Second Edition.
        Oxford University Press.
-
     """
     def __init__(self, endog, exog, constraints=None, **kwargs):
         # Standardize data
@@ -136,6 +135,12 @@ class RecursiveLS(MLEModel):
     def from_formula(cls, formula, data, subset=None, constraints=None):
         return super(MLEModel, cls).from_formula(formula, data, subset,
                                                  constraints=constraints)
+
+    def _validate_can_fix_params(self, param_names):
+        raise ValueError('Linear constraints on coefficients should be given'
+                         ' using the `constraints` argument in constructing.'
+                         ' the model. Other parameter constraints are not'
+                         ' available in the resursive least squares model.')
 
     def fit(self):
         """
@@ -345,7 +350,6 @@ class RecursiveLSResults(MLEResults):
         variance is not necessarily equal to unity as the mean need not be
         equal to zero", and he defines an alternative version (which are
         not provided here).
-
         """
         return (self.filter_results.standardized_forecasts_error[0] *
                 self.scale**0.5)
@@ -388,7 +392,6 @@ class RecursiveLSResults(MLEResults):
            Regression Relationships over Time."
            Journal of the Royal Statistical Society.
            Series B (Methodological) 37 (2): 149-92.
-
         """
         d = max(self.nobs_diffuse, self.loglikelihood_burn)
         return (np.cumsum(self.resid_recursive[d:]) /
@@ -426,7 +429,6 @@ class RecursiveLSResults(MLEResults):
            Regression Relationships over Time."
            Journal of the Royal Statistical Society.
            Series B (Methodological) 37 (2): 149-92.
-
         """
         d = max(self.nobs_diffuse, self.loglikelihood_burn)
         numer = np.cumsum(self.resid_recursive[d:]**2)
@@ -468,7 +470,7 @@ class RecursiveLSResults(MLEResults):
 
     @cache_readonly
     def ess(self):
-        """esss"""
+        """ess"""
         if self.k_constant:
             return self.centered_tss - self.ssr
         else:
@@ -693,7 +695,7 @@ class RecursiveLSResults(MLEResults):
             The plotted significance bounds are alpha %.
         legend_loc : str, optional
             The location of the legend in the plot. Default is upper left.
-        fig : Matplotlib Figure instance, optional
+        fig : Figure, optional
             If given, subplots are created in this figure instead of in a new
             figure. Note that the grid will be created in the provided
             figure using `fig.add_subplot()`.
@@ -713,7 +715,6 @@ class RecursiveLSResults(MLEResults):
            Regression Relationships over Time."
            Journal of the Royal Statistical Society.
            Series B (Methodological) 37 (2): 149-92.
-
         """
         # Create the plot
         from statsmodels.graphics.utils import _import_mpl, create_mpl_fig
@@ -786,7 +787,7 @@ class RecursiveLSResults(MLEResults):
             The plotted significance bounds are alpha %.
         legend_loc : str, optional
             The location of the legend in the plot. Default is upper left.
-        fig : Matplotlib Figure instance, optional
+        fig : Figure, optional
             If given, subplots are created in this figure instead of in a new
             figure. Note that the grid will be created in the provided
             figure using `fig.add_subplot()`.
@@ -813,7 +814,6 @@ class RecursiveLSResults(MLEResults):
            "Critical Values for the Cusumsq Statistic
            in Medium and Large Sized Samples."
            Oxford Bulletin of Economics and Statistics 56 (3): 355-65.
-
         """
         # Create the plot
         from statsmodels.graphics.utils import _import_mpl, create_mpl_fig

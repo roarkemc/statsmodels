@@ -1,7 +1,8 @@
+from statsmodels.compat.pandas import assert_frame_equal, assert_series_equal
+
 import numpy as np
 from numpy.testing import assert_equal
 import pandas as pd
-from pandas.util import testing as tm
 import pytest
 from scipy import sparse
 
@@ -26,7 +27,7 @@ class CheckGrouping(object):
         sorted_data, index = self.grouping.sort(self.data)
         expected_sorted_data = self.data.sort_index()
 
-        tm.assert_frame_equal(sorted_data, expected_sorted_data)
+        assert_frame_equal(sorted_data, expected_sorted_data)
         np.testing.assert_(isinstance(sorted_data, pd.DataFrame))
         np.testing.assert_(not index.equals(self.grouping.index))
 
@@ -45,7 +46,7 @@ class CheckGrouping(object):
         sorted_data, index = self.grouping.sort(series)
 
         expected_sorted_data = series.sort_index()
-        tm.assert_series_equal(sorted_data, expected_sorted_data)
+        assert_series_equal(sorted_data, expected_sorted_data)
         np.testing.assert_(isinstance(sorted_data, pd.Series))
         if hasattr(sorted_data, 'equals'):
             np.testing.assert_(not sorted_data.equals(series))
@@ -66,8 +67,8 @@ class CheckGrouping(object):
                                             level=0)
         grouped = self.data.reset_index().groupby(names[0])
         expected = grouped.apply(lambda x : x.mean())[self.data.columns]
-        np.testing.assert_array_equal(transformed_dataframe,
-                                      expected.values)
+        np.testing.assert_allclose(transformed_dataframe,
+                                   expected.values)
 
         if len(names) > 1:
             transformed_dataframe = self.grouping.transform_dataframe(
@@ -75,8 +76,8 @@ class CheckGrouping(object):
                                             level=1)
             grouped = self.data.reset_index().groupby(names[1])
             expected = grouped.apply(lambda x: x.mean())[self.data.columns]
-            np.testing.assert_array_equal(transformed_dataframe,
-                                          expected.values)
+            np.testing.assert_allclose(transformed_dataframe,
+                                       expected.values)
 
     def test_transform_array(self):
         names = self.data.index.names
@@ -86,8 +87,8 @@ class CheckGrouping(object):
                                             level=0)
         grouped = self.data.reset_index().groupby(names[0])
         expected = grouped.apply(lambda x: x.mean())[self.data.columns]
-        np.testing.assert_array_equal(transformed_array,
-                                      expected.values)
+        np.testing.assert_allclose(transformed_array,
+                                   expected.values)
 
         if len(names) > 1:
             transformed_array = self.grouping.transform_array(
@@ -95,8 +96,8 @@ class CheckGrouping(object):
                                             lambda x : x.mean(), level=1)
             grouped = self.data.reset_index().groupby(names[1])
             expected = grouped.apply(lambda x: x.mean())[self.data.columns]
-            np.testing.assert_array_equal(transformed_array,
-                                          expected.values)
+            np.testing.assert_allclose(transformed_array,
+                                       expected.values)
 
 
     def test_transform_slices(self):

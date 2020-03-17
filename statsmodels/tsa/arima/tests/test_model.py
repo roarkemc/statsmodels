@@ -36,13 +36,13 @@ def test_default_trend():
     # Defaults when only endog is specified
     mod = ARIMA(endog)
     # with no integration, default trend a constant
-    assert_equal(mod._spec.trend_order, 0)
+    assert_equal(mod._spec_arima.trend_order, 0)
     assert_allclose(mod.exog, np.ones((mod.nobs, 1)))
 
     # Defaults with integrated model
     mod = ARIMA(endog, order=(0, 1, 0))
     # with no integration, default trend is none
-    assert_equal(mod._spec.trend_order, None)
+    assert_equal(mod._spec_arima.trend_order, None)
     assert_equal(mod.exog, None)
 
 
@@ -104,8 +104,8 @@ def test_burg():
 
 
 def test_hannan_rissanen():
-    # Test for basic use of Yule-Walker estimation
-    endog = dta['infl'].iloc[:100]
+    # Test for basic use of Hannan-Rissanen estimation
+    endog = dta['infl'].diff().iloc[1:101]
 
     # ARMA(1, 1), no trend (since trend would imply GLS estimation)
     desired_p, _ = hannan_rissanen(
@@ -157,7 +157,7 @@ def test_statespace():
     mod = ARIMA(endog, order=(1, 0, 1), trend='n')
     res = mod.fit(method='statespace')
     # Note: atol is required only due to precision issues on Windows
-    assert_allclose(res.params, desired_p.params, atol=1e-5)
+    assert_allclose(res.params, desired_p.params, atol=1e-4)
 
     # ARMA(1, 2), with trend
     desired_p, _ = statespace(endog, order=(1, 0, 2),
@@ -165,7 +165,7 @@ def test_statespace():
     mod = ARIMA(endog, order=(1, 0, 2), trend='c')
     res = mod.fit(method='statespace')
     # Note: atol is required only due to precision issues on Windows
-    assert_allclose(res.params, desired_p.params, atol=1e-5)
+    assert_allclose(res.params, desired_p.params, atol=1e-4)
 
     # SARMA(1, 0)x(1, 0)4, no trend
     desired_p, _spec = statespace(endog, order=(1, 0, 0),
@@ -174,7 +174,7 @@ def test_statespace():
     mod = ARIMA(endog, order=(1, 0, 0), seasonal_order=(1, 0, 0, 4), trend='n')
     res = mod.fit(method='statespace')
     # Note: atol is required only due to precision issues on Windows
-    assert_allclose(res.params, desired_p.params, atol=1e-5)
+    assert_allclose(res.params, desired_p.params, atol=1e-4)
 
 
 def test_low_memory():
@@ -194,7 +194,56 @@ def test_low_memory():
 
     # Check that low memory was actually used (just check a couple)
     assert_(res2.llf_obs is None)
-    assert_(res2.forecasts is None)
     assert_(res2.predicted_state is None)
     assert_(res2.filtered_state is None)
     assert_(res2.smoothed_state is None)
+
+
+def check_cloned(mod, endog, exog=None):
+    mod_c = mod.clone(endog, exog=exog)
+
+    assert_allclose(mod.nobs, mod_c.nobs)
+    assert_(mod._index.equals(mod_c._index))
+    assert_equal(mod.k_params, mod_c.k_params)
+    assert_allclose(mod.start_params, mod_c.start_params)
+    p = mod.start_params
+    assert_allclose(mod.loglike(p), mod_c.loglike(p))
+    assert_allclose(mod.concentrate_scale, mod_c.concentrate_scale)
+
+
+def test_clone():
+    endog = dta['infl'].iloc[:50]
+    exog = np.arange(endog.shape[0])
+
+    # Basic model
+    check_cloned(ARIMA(endog), endog)
+    check_cloned(ARIMA(endog.values), endog.values)
+    # With trends
+    check_cloned(ARIMA(endog, trend='c'), endog)
+    check_cloned(ARIMA(endog, trend='t'), endog)
+    check_cloned(ARIMA(endog, trend='ct'), endog)
+    # With exog
+    check_cloned(ARIMA(endog, exog=exog), endog, exog=exog)
+    check_cloned(ARIMA(endog, exog=exog, trend='c'), endog, exog=exog)
+    # Concentrated scale
+    check_cloned(ARIMA(endog, exog=exog, trend='c', concentrate_scale=True),
+                 endog, exog=exog)
+
+    # Higher order (use a different dataset to avoid warnings about
+    # non-invertible start params)
+    endog = dta['realgdp'].iloc[:100]
+    exog = np.arange(endog.shape[0])
+    check_cloned(ARIMA(endog, order=(2, 1, 1), seasonal_order=(1, 1, 2, 4),
+                       exog=exog, trend='c', concentrate_scale=True),
+                 endog, exog=exog)
+
+
+def test_append():
+    endog = dta['infl'].iloc[:100].values
+    mod = ARIMA(endog[:50], trend='c')
+    res = mod.fit()
+    res_e = res.append(endog[50:])
+    mod2 = ARIMA(endog)
+    res2 = mod2.filter(res_e.params)
+
+    assert_allclose(res2.llf, res_e.llf)

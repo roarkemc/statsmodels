@@ -33,10 +33,9 @@ def add_trend(x, trend="c", prepend=False, has_constant='skip'):
     prepend : bool
         If True, prepends the new data to the columns of X.
     has_constant : str {'raise', 'add', 'skip'}
-        Controls what happens when trend is 'c' and a constant already
-        exists in x. 'raise' will raise an error. 'add' will duplicate a
-        constant. 'skip' will return the data without change. 'skip' is the
-        default.
+        Controls what happens when trend is 'c' and a constant column already
+        exists in x. 'raise' will raise an error. 'add' will add a column of
+        1s. 'skip' will return the data without change. 'skip' is the default.
 
     Returns
     -------
@@ -79,6 +78,11 @@ def add_trend(x, trend="c", prepend=False, has_constant='skip'):
     is_pandas = _is_using_pandas(x, None) or is_recarray
     if is_pandas or is_recarray:
         if is_recarray:
+            # deprecated: remove recarray support after 0.12
+            import warnings
+            from statsmodels.tools.sm_exceptions import recarray_warning
+            warnings.warn(recarray_warning, FutureWarning)
+
             descr = x.dtype.descr
             x = pd.DataFrame.from_records(x)
         elif isinstance(x, pd.Series):
@@ -148,7 +152,7 @@ def add_lag(x, col=None, lags=1, drop=False, insert=True):
 
     Parameters
     ----------
-    x : array
+    x : array_like
         An array or NumPy ndarray subclass. Can be either a 1d or 2d array with
         observations in columns.
     col : 'string', int, or None
@@ -598,7 +602,6 @@ def elimination_matrix(n):
 
     Returns
     -------
-
     """
     n = int_like(n, 'n')
     vech_indices = vec(np.tril(np.ones((n, n))))
@@ -676,7 +679,7 @@ def _ma_transparams(params):
 
     Parameters
     ----------
-    params : array
+    params : ndarray
         The ma coeffecients of an (AR)MA model.
 
     Reference
@@ -701,7 +704,7 @@ def _ma_invtransparams(macoefs):
 
     Parameters
     ----------
-    params : array
+    params : ndarray
         The transformed MA coefficients
     """
     tmp = macoefs.copy()

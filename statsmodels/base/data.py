@@ -59,6 +59,10 @@ class ModelData(object):
 
     def __init__(self, endog, exog=None, missing='none', hasconst=None,
                  **kwargs):
+        if data_util._is_recarray(endog) or data_util._is_recarray(exog):
+            import warnings
+            from statsmodels.tools.sm_exceptions import recarray_warning
+            warnings.warn(recarray_warning, FutureWarning)
         if 'design_info' in kwargs:
             self.design_info = kwargs.pop('design_info')
         if 'formula' in kwargs:
@@ -124,10 +128,11 @@ class ModelData(object):
         else:
             # detect where the constant is
             check_implicit = False
-            ptp_ = np.ptp(self.exog, axis=0)
-            if not np.isfinite(ptp_).all():
+            exog_max = np.max(self.exog, axis=0)
+            if not np.isfinite(exog_max).all():
                 raise MissingDataError('exog contains inf or nans')
-            const_idx = np.where(ptp_ == 0)[0].squeeze()
+            exog_min = np.min(self.exog, axis=0)
+            const_idx = np.where(exog_max == exog_min)[0].squeeze()
             self.k_constant = const_idx.size
 
             if self.k_constant == 1:
@@ -582,7 +587,7 @@ class PandasData(ModelData):
         squeezed = result.squeeze()
         k_endog = np.array(self.ynames, ndmin=1).shape[0]
         if k_endog > 1 and squeezed.shape == (k_endog,):
-            squeezed = squeezed[None, :]
+            squeezed = np.asarray(squeezed)[None, :]
         # May be zero-dim, for example in the case of forecast one step in tsa
         if squeezed.ndim < 2:
             return Series(squeezed, index=self.predict_dates)

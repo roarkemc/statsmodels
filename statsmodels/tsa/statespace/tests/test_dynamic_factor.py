@@ -554,22 +554,22 @@ class TestDynamicFactor_general_errors(CheckDynamicFactor):
         # -> Check that we have the right coefficients
         offset = self.model.k_endog * self.model.k_factors
         assert re.search(
-            'sqrt.var.dln_inv +' + forg(params[offset + 0], prec=4),
+            r'cov.chol\[1,1\] +' + forg(params[offset + 0], prec=4),
             table)
         assert re.search(
-            'sqrt.cov.dln_inv.dln_inc +' + forg(params[offset + 1], prec=4),
+            r'cov.chol\[2,1\] +' + forg(params[offset + 1], prec=4),
             table)
         assert re.search(
-            'sqrt.var.dln_inc +' + forg(params[offset + 2], prec=4),
+            r'cov.chol\[2,2\] +' + forg(params[offset + 2], prec=4),
             table)
         assert re.search(
-            'sqrt.cov.dln_inv.dln_consump +' + forg(params[offset+3], prec=4),
+            r'cov.chol\[3,1\] +' + forg(params[offset+3], prec=4),
             table)
         assert re.search(
-            'sqrt.cov.dln_inc.dln_consump +' + forg(params[offset+4], prec=4),
+            r'cov.chol\[3,2\] +' + forg(params[offset+4], prec=4),
             table)
         assert re.search(
-            'sqrt.var.dln_consump +' + forg(params[offset + 5], prec=4),
+            r'cov.chol\[3,3\] +' + forg(params[offset + 5], prec=4),
             table)
 
 
@@ -702,7 +702,6 @@ class TestSUR_autocorrelated_errors(CheckDynamicFactor):
     """
     Test for a seemingly unrelated regression model (i.e. no factors) where
     the errors are vector autocorrelated, but innovations are uncorrelated.
-
     """
     @classmethod
     def setup_class(cls):
@@ -972,3 +971,18 @@ def test_apply_results():
 
     assert_allclose(res3.forecast(10, exog=np.ones(10)),
                     res1.forecast(10, exog=np.ones(10)))
+
+
+def test_start_params_nans():
+    ix = pd.date_range('1960-01-01', '1982-10-01', freq='QS')
+    dta = np.log(pd.DataFrame(
+        results_varmax.lutkepohl_data, columns=['inv', 'inc', 'consump'],
+        index=ix)).diff().iloc[1:]
+
+    endog1 = dta.iloc[:-1]
+    mod1 = dynamic_factor.DynamicFactor(endog1, k_factors=1, factor_order=1)
+    endog2 = dta.copy()
+    endog2.iloc[-1:] = np.nan
+    mod2 = dynamic_factor.DynamicFactor(endog2, k_factors=1, factor_order=1)
+
+    assert_allclose(mod2.start_params, mod1.start_params)

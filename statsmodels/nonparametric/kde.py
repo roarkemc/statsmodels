@@ -15,6 +15,7 @@ import numpy as np
 from scipy import integrate, stats
 from statsmodels.sandbox.nonparametric import kernels
 from statsmodels.tools.decorators import cache_readonly
+from statsmodels.tools.validation import array_like
 from . import bandwidths
 from .kdetools import (forrt, revrt, silverman_transform)
 from .linbin import fast_linbin
@@ -71,11 +72,10 @@ class KDEUnivariate(object):
     >>> dens.fit()
     >>> plt.plot(dens.cdf)
     >>> plt.show()
-
     """
 
     def __init__(self, endog):
-        self.endog = np.asarray(endog)
+        self.endog = array_like(endog, "endog", ndim=1, contiguous=True)
 
     def fit(self, kernel="gau", bw="normal_reference", fft=True, weights=None,
             gridsize=None, adjust=1, cut=3, clip=(-np.inf, np.inf)):
@@ -186,7 +186,6 @@ class KDEUnivariate(object):
         Notes
         -----
         Will not work if fit has not been called.
-
         """
         _checkisfit(self)
         return -np.log(self.sf)
@@ -245,12 +244,12 @@ class KDEUnivariate(object):
 
     def evaluate(self, point):
         """
-        Evaluate density at a single point.
+        Evaluate density at a point or points.
 
         Parameters
         ----------
-        point : float
-            Point at which to evaluate the density.
+        point : {float, ndarray}
+            Point(s) at which to evaluate the density.
         """
         _checkisfit(self)
         return self.kernel.density(self.endog, point)
@@ -299,9 +298,9 @@ def kdensity(X, kernel="gau", bw="normal_reference", weights=None, gridsize=None
 
     Returns
     -------
-    density : array
+    density : ndarray
         The densities estimated at the grid points.
-    grid : array, optional
+    grid : ndarray, optional
         The grid points at which the density is estimated.
 
     Notes
@@ -415,9 +414,9 @@ def kdensityfft(X, kernel="gau", bw="normal_reference", weights=None, gridsize=N
 
     Returns
     -------
-    density : array
+    density : ndarray
         The densities estimated at the grid points.
-    grid : array, optional
+    grid : ndarray, optional
         The grid points at which the density is estimated.
 
     Notes

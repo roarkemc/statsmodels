@@ -37,7 +37,6 @@ from pandas import Index, MultiIndex
 
 def combine_indices(groups, prefix='', sep='.', return_labels=False):
     """use np.unique to get integer group indices for product, intersection
-
     """
     if isinstance(groups, tuple):
         groups = np.column_stack(groups)
@@ -82,7 +81,7 @@ def combine_indices(groups, prefix='', sep='.', return_labels=False):
 def group_sums(x, group, use_bincount=True):
     """simple bincount version, again
 
-    group : array, integer
+    group : ndarray, integer
         assumed to be consecutive integers
 
     no dtype checking because I want to raise in that case
@@ -171,7 +170,6 @@ def dummy_sparse(groups):
             [1, 0, 0],
             [0, 0, 1],
             [1, 0, 0]], dtype=int8)
-
     """
     from scipy import sparse
 
@@ -279,7 +277,6 @@ class GroupSorted(Group):
         maxlag or lag or lags.
 
         not tested yet
-
         """
         lag_idx = np.asarray(self.groupidx)[:, 1] - lag  # asarray or already?
         mask_ok = (lag <= lag_idx)

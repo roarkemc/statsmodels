@@ -1,7 +1,9 @@
+from statsmodels.compat.pandas import assert_series_equal, assert_frame_equal,\
+    make_dataframe
+
 import numpy as np
 from numpy.testing import assert_equal, assert_, assert_raises
 import pandas as pd
-import pandas.util.testing as tm
 import pytest
 
 from statsmodels.base import data as sm_data
@@ -22,7 +24,6 @@ from statsmodels.discrete.discrete_model import Logit
 #    def test_dates(self):
 #        np.testing.assert_equal(data.wrap_output(self.dates_input, 'dates'),
 #                                self.dates_result)
-
 
 class TestArrays(object):
     @classmethod
@@ -125,8 +126,8 @@ class TestDataFrames(TestArrays):
         cls.row_labels = cls.exog.index
 
     def test_orig(self):
-        tm.assert_frame_equal(self.data.orig_endog, self.endog)
-        tm.assert_frame_equal(self.data.orig_exog, self.exog)
+        assert_frame_equal(self.data.orig_endog, self.endog)
+        assert_frame_equal(self.data.orig_exog, self.exog)
 
     def test_endogexog(self):
         np.testing.assert_equal(self.data.endog, self.endog.values.squeeze())
@@ -136,12 +137,12 @@ class TestDataFrames(TestArrays):
         data = self.data
         # this makes sure what the wrappers need work but not the wrapped
         # results themselves
-        tm.assert_series_equal(data.wrap_output(self.col_input, 'columns'),
-                               self.col_result)
-        tm.assert_series_equal(data.wrap_output(self.row_input, 'rows'),
-                               self.row_result)
-        tm.assert_frame_equal(data.wrap_output(self.cov_input, 'cov'),
-                              self.cov_result)
+        assert_series_equal(data.wrap_output(self.col_input, 'columns'),
+                            self.col_result)
+        assert_series_equal(data.wrap_output(self.row_input, 'rows'),
+                            self.row_result)
+        assert_frame_equal(data.wrap_output(self.cov_input, 'cov'),
+                           self.cov_result)
 
 
 class TestDataFramesWithMultiIndex(TestDataFrames):
@@ -187,7 +188,8 @@ class TestRecarrays(TestArrays):
                                            ('x_2', 'f8')]).view(np.recarray)
         exog['const'] = 1
         cls.exog = exog
-        cls.data = sm_data.handle_data(cls.endog, cls.exog)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            cls.data = sm_data.handle_data(cls.endog, cls.exog)
         cls.xnames = ['const', 'x_1', 'x_2']
         cls.ynames = 'y_1'
 
@@ -207,7 +209,8 @@ class TestStructarrays(TestArrays):
                                            ('x_2', 'f8')]).view(np.recarray)
         exog['const'] = 1
         cls.exog = exog
-        cls.data = sm_data.handle_data(cls.endog, cls.exog)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            cls.data = sm_data.handle_data(cls.endog, cls.exog)
         cls.xnames = ['const', 'x_1', 'x_2']
         cls.ynames = 'y_1'
 
@@ -250,7 +253,7 @@ class TestListDataFrame(TestDataFrames):
 
     def test_orig(self):
         np.testing.assert_equal(self.data.orig_endog, self.endog)
-        tm.assert_frame_equal(self.data.orig_exog, self.exog)
+        assert_frame_equal(self.data.orig_exog, self.exog)
 
 
 class TestDataFrameList(TestDataFrames):
@@ -284,7 +287,7 @@ class TestDataFrameList(TestDataFrames):
         np.testing.assert_equal(self.data.exog, self.exog)
 
     def test_orig(self):
-        tm.assert_frame_equal(self.data.orig_endog, self.endog)
+        assert_frame_equal(self.data.orig_endog, self.endog)
         np.testing.assert_equal(self.data.orig_exog, self.exog)
 
 
@@ -320,7 +323,7 @@ class TestArrayDataFrame(TestDataFrames):
 
     def test_orig(self):
         np.testing.assert_equal(self.data.orig_endog, self.endog)
-        tm.assert_frame_equal(self.data.orig_exog, self.exog)
+        assert_frame_equal(self.data.orig_exog, self.exog)
 
 
 class TestDataFrameArray(TestDataFrames):
@@ -354,7 +357,7 @@ class TestDataFrameArray(TestDataFrames):
         np.testing.assert_equal(self.data.exog, self.exog)
 
     def test_orig(self):
-        tm.assert_frame_equal(self.data.orig_endog, self.endog)
+        assert_frame_equal(self.data.orig_endog, self.endog)
         np.testing.assert_equal(self.data.orig_exog, self.exog)
 
 
@@ -385,8 +388,8 @@ class TestSeriesDataFrame(TestDataFrames):
         cls.row_labels = cls.exog.index
 
     def test_orig(self):
-        tm.assert_series_equal(self.data.orig_endog, self.endog)
-        tm.assert_frame_equal(self.data.orig_exog, self.exog)
+        assert_series_equal(self.data.orig_endog, self.endog)
+        assert_frame_equal(self.data.orig_exog, self.exog)
 
 
 class TestSeriesSeries(TestDataFrames):
@@ -414,8 +417,8 @@ class TestSeriesSeries(TestDataFrames):
         cls.row_labels = cls.exog.index
 
     def test_orig(self):
-        tm.assert_series_equal(self.data.orig_endog, self.endog)
-        tm.assert_series_equal(self.data.orig_exog, self.exog)
+        assert_series_equal(self.data.orig_endog, self.endog)
+        assert_series_equal(self.data.orig_exog, self.exog)
 
     def test_endogexog(self):
         np.testing.assert_equal(self.data.endog, self.endog.values.squeeze())
@@ -515,17 +518,16 @@ class TestMultipleEqsDataFrames(TestDataFrames):
 
     def test_attach(self):
         data = self.data
-        tm.assert_series_equal(data.wrap_output(self.col_input, 'columns'),
-                               self.col_result)
-        tm.assert_series_equal(data.wrap_output(self.row_input, 'rows'),
-                               self.row_result)
-        tm.assert_frame_equal(data.wrap_output(self.cov_input, 'cov'),
-                              self.cov_result)
-        tm.assert_frame_equal(data.wrap_output(self.cov_eq_input, 'cov_eq'),
-                              self.cov_eq_result)
-        tm.assert_frame_equal(data.wrap_output(self.col_eq_input,
-                                               'columns_eq'),
-                              self.col_eq_result)
+        assert_series_equal(data.wrap_output(self.col_input, 'columns'),
+                            self.col_result)
+        assert_series_equal(data.wrap_output(self.row_input, 'rows'),
+                            self.row_result)
+        assert_frame_equal(data.wrap_output(self.cov_input, 'cov'),
+                           self.cov_result)
+        assert_frame_equal(data.wrap_output(self.cov_eq_input, 'cov_eq'),
+                           self.cov_eq_result)
+        assert_frame_equal(data.wrap_output(self.col_eq_input, 'columns_eq'),
+                           self.col_eq_result)
 
 
 class TestMissingArray(object):
@@ -631,9 +633,9 @@ class TestMissingPandas(object):
         X = X.loc[idx]
         data = sm_data.handle_data(self.y, self.X, 'drop')
         np.testing.assert_array_equal(data.endog, y.values)
-        tm.assert_series_equal(data.orig_endog, self.y.loc[idx])
+        assert_series_equal(data.orig_endog, self.y.loc[idx])
         np.testing.assert_array_equal(data.exog, X.values)
-        tm.assert_frame_equal(data.orig_exog, self.X.loc[idx])
+        assert_frame_equal(data.orig_exog, self.X.loc[idx])
 
     def test_none(self):
         data = sm_data.handle_data(self.y, self.X, 'none', hasconst=False)
@@ -701,15 +703,16 @@ class TestConstant(object):
 class TestHandleMissing(object):
 
     def test_pandas(self):
-        df = tm.makeDataFrame()
+
+        df = make_dataframe()
         df.values[[2, 5, 10], [2, 3, 1]] = np.nan
         y, X = df[df.columns[0]], df[df.columns[1:]]
         data, _ = sm_data.handle_missing(y, X, missing='drop')
 
         df = df.dropna()
         y_exp, X_exp = df[df.columns[0]], df[df.columns[1:]]
-        tm.assert_frame_equal(data['exog'], X_exp)
-        tm.assert_series_equal(data['endog'], y_exp)
+        assert_frame_equal(data['exog'], X_exp)
+        assert_series_equal(data['endog'], y_exp)
 
     def test_arrays(self):
         arr = np.random.randn(20, 4)
@@ -725,7 +728,7 @@ class TestHandleMissing(object):
         np.testing.assert_array_equal(data['exog'], X_exp)
 
     def test_pandas_array(self):
-        df = tm.makeDataFrame()
+        df = make_dataframe()
         df.values[[2, 5, 10], [2, 3, 1]] = np.nan
         y, X = df[df.columns[0]], df[df.columns[1:]].values
         data, _ = sm_data.handle_missing(y, X, missing='drop')
@@ -733,28 +736,28 @@ class TestHandleMissing(object):
         df = df.dropna()
         y_exp, X_exp = df[df.columns[0]], df[df.columns[1:]].values
         np.testing.assert_array_equal(data['exog'], X_exp)
-        tm.assert_series_equal(data['endog'], y_exp)
+        assert_series_equal(data['endog'], y_exp)
 
     def test_array_pandas(self):
-        df = tm.makeDataFrame()
+        df = make_dataframe()
         df.values[[2, 5, 10], [2, 3, 1]] = np.nan
         y, X = df[df.columns[0]].values, df[df.columns[1:]]
         data, _ = sm_data.handle_missing(y, X, missing='drop')
 
         df = df.dropna()
         y_exp, X_exp = df[df.columns[0]].values, df[df.columns[1:]]
-        tm.assert_frame_equal(data['exog'], X_exp)
+        assert_frame_equal(data['exog'], X_exp)
         np.testing.assert_array_equal(data['endog'], y_exp)
 
     def test_noop(self):
-        df = tm.makeDataFrame()
+        df = make_dataframe()
         df.values[[2, 5, 10], [2, 3, 1]] = np.nan
         y, X = df[df.columns[0]], df[df.columns[1:]]
         data, _ = sm_data.handle_missing(y, X, missing='none')
 
         y_exp, X_exp = df[df.columns[0]], df[df.columns[1:]]
-        tm.assert_frame_equal(data['exog'], X_exp)
-        tm.assert_series_equal(data['endog'], y_exp)
+        assert_frame_equal(data['exog'], X_exp)
+        assert_series_equal(data['endog'], y_exp)
 
 
 class CheckHasConstant(object):

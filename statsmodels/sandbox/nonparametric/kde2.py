@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 from statsmodels.compat.python import lzip
+
 import numpy as np
+
+from statsmodels.tools.validation import array_like
 from . import kernels
 
 
@@ -15,11 +18,10 @@ class KDE(object):
         N-dimensional array from which the density is to be estimated
     kernel : Kernel Class
         Should be a class from *
-
     """
     #TODO: amend docs for Nd case?
     def __init__(self, x, kernel=None):
-        x = np.asarray(x)
+        x = array_like(x, "x", maxdim=2, contiguous=True)
         if x.ndim == 1:
             x = x[:,None]
 

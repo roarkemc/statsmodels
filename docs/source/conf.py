@@ -13,13 +13,14 @@
 # serve to show the default.
 
 import contextlib
-import json
+from distutils.version import LooseVersion
 import os
-import sys
 from os.path import dirname, join
+import sys
+
+import yaml
 
 import sphinx_material
-
 from statsmodels import __version__
 
 # -- Monkey Patch ----------------------------------------------------------
@@ -95,11 +96,10 @@ autoclass_content = 'class'
 #
 
 release = __version__
-from distutils.version import LooseVersion
 
 lv = LooseVersion(release)
-full_version = version = short_version = lv.version
 commit = ''
+full_version = short_version = version = release
 if '+' in lv.version:
     short_version = lv.vstring[:lv.vstring.index('+')]
     commit = lv.version[lv.version.index('+') + 1]
@@ -183,7 +183,9 @@ html_theme_options = {
     'heroes': {'index': 'statistical models, hypothesis tests, and data '
                         'exploration',
                'examples/index': 'examples and tutorials to get started with '
-                                 'statsmodels'}
+                                 'statsmodels'},
+    "version_dropdown": True,
+    "version_json": "_static/versions.json",
 }
 
 language = 'en'
@@ -370,6 +372,8 @@ numpydoc_xref_param_type = True
 numpydoc_class_members_toctree = False
 numpydoc_xref_aliases = {
     'Figure': 'matplotlib.figure.Figure',
+    'Axes': 'matplotlib.axes.Axes',
+    'AxesSubplot': 'matplotlib.axes.Axes',
     'DataFrame': 'pandas.DataFrame',
     'Series': 'pandas.Series',
     'MLEResults': 'statsmodels.tsa.statespace.mlemodel.MLEResults'
@@ -391,7 +395,7 @@ plot_basedir = join(dirname(dirname(os.path.abspath(__file__))), 'source')
 # ghissue config
 github_project_url = 'https://github.com/statsmodels/statsmodels'
 
-example_context = json.load(open('examples/landing.json'))
+example_context = yaml.safe_load(open('examples/landing.yml'))
 html_context.update({'examples': example_context})
 
 # --------------- DOCTEST -------------------
@@ -422,8 +426,6 @@ def rstjinja(app, docname, source):
     if app.builder.format != "html":
         return
     src = source[0]
-    import copy
-    orig = copy.deepcopy(src)
     # Skip converted notebooks
     if 'nbconvert_exporter' in src:
         return

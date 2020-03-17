@@ -3,10 +3,9 @@ import numpy as np
 from numpy import (dot, eye, diag_indices, zeros, ones, diag,
         asarray, r_)
 from numpy.linalg import solve
-#from scipy.linalg import block_diag
-#from scipy import linalg
 
-#def denton(indicator, benchmark, freq="aq", **kwarg):
+
+# def denton(indicator, benchmark, freq="aq", **kwarg):
 #    """
 #    Denton's method to convert low-frequency to high frequency data.
 #
@@ -30,7 +29,7 @@ from numpy.linalg import solve
 #            `freq` == "other".
 #    Returns
 #    -------
-#    benchmarked series : array
+#    benchmarked series : ndarray
 #
 #    Notes
 #    -----
@@ -115,7 +114,7 @@ def dentonm(indicator, benchmark, freq="aq", **kwargs):
 
     Returns
     -------
-    transformed : array
+    transformed : ndarray
         The transformed series.
 
     Examples

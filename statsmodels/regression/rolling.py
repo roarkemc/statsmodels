@@ -8,12 +8,12 @@ Copyright (c) 2019 Kevin Sheppard
 License: 3-clause BSD
 """
 from statsmodels.compat.numpy import lstsq
+from statsmodels.compat.pandas import Appender, Substitution
 
 from collections import namedtuple
 
 import numpy as np
 from pandas import Series, DataFrame, MultiIndex
-from pandas.util._decorators import Appender, Substitution
 from scipy import stats
 
 from statsmodels.base import model
@@ -658,9 +658,9 @@ class RollingRegressionResults(object):
         alpha : float, optional
             The confidence intervals for the coefficient are (1 - alpha)%. Set
             to None to exclude confidence intervals.
-        legend_loc : string, optional
+        legend_loc : str, optional
             The location of the legend in the plot. Default is upper left.
-        fig : Matplotlib Figure instance, optional
+        fig : Figure, optional
             If given, subplots are created in this figure instead of in a new
             figure. Note that the grid will be created in the provided
             figure using `fig.add_subplot()`.

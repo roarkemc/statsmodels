@@ -87,7 +87,6 @@ class TimeSeriesModel(base.LikelihoodModel):
         it is possible to extend them in a reasonable way. Thus every model
         must have an underlying supported index, even if it is just a generated
         Int64Index.
-
         """
 
         # Get our index from `dates` if available, otherwise from whatever
@@ -201,11 +200,13 @@ class TimeSeriesModel(base.LikelihoodModel):
         # Get attributes of the index
         has_index = index is not None
         date_index = isinstance(index, (DatetimeIndex, PeriodIndex))
+        period_index = isinstance(index, PeriodIndex)
         int_index = isinstance(index, Int64Index)
         range_index = isinstance(index, RangeIndex)
         has_freq = index.freq is not None if date_index else None
         increment = Index(range(self.endog.shape[0]))
         is_increment = index.equals(increment) if int_index else None
+        is_monotonic = index.is_monotonic if date_index else None
 
         # Issue warnings for unsupported indexes
         if has_index and not (date_index or range_index or is_increment):
@@ -215,12 +216,17 @@ class TimeSeriesModel(base.LikelihoodModel):
             warnings.warn('A date index has been provided, but it has no'
                           ' associated frequency information and so will be'
                           ' ignored when e.g. forecasting.', ValueWarning)
+        if date_index and not is_monotonic:
+            warnings.warn('A date index has been provided, but it is not'
+                          ' monotonic and so will be ignored when e.g.'
+                          ' forecasting.', ValueWarning)
 
         # Construct the internal index
         index_generated = False
+        valid_index = ((date_index and has_freq and is_monotonic) or
+                       (int_index and is_increment) or range_index)
 
-        if ((date_index and has_freq) or (int_index and is_increment) or
-                range_index):
+        if valid_index:
             _index = index
         else:
             _index = increment
@@ -228,6 +234,7 @@ class TimeSeriesModel(base.LikelihoodModel):
         self._index = _index
         self._index_generated = index_generated
         self._index_none = index is None
+        self._index_int64 = int_index and not range_index and not date_index
         self._index_dates = date_index and not index_generated
         self._index_freq = self._index.freq if self._index_dates else None
         self._index_inferred_freq = inferred_freq
@@ -265,7 +272,6 @@ class TimeSeriesModel(base.LikelihoodModel):
         If `key` is past the end of of the given index, and the index is either
         an Int64Index or a date index, this function extends the index up to
         and including key, and then returns the location in the new index.
-
         """
         if base_index is None:
             base_index = self._index
@@ -333,7 +339,7 @@ class TimeSeriesModel(base.LikelihoodModel):
                 if index_class is PeriodIndex:
                     date_key = Period(key, freq=base_index.freq)
                 else:
-                    date_key = Timestamp(key)
+                    date_key = Timestamp(key, freq=base_index.freq)
 
                 # Out-of-sample
                 if date_key > base_index[-1]:
@@ -346,6 +352,10 @@ class TimeSeriesModel(base.LikelihoodModel):
                         index = index_fn(start=base_index[0],
                                          periods=len(index) + 1,
                                          freq=base_index.freq)
+
+                    # To avoid possible inconsistencies with `get_loc` below,
+                    # set the key directly equal to the last index location
+                    key = index[-1]
 
         # Get the location
         if date_index:
@@ -413,7 +423,6 @@ class TimeSeriesModel(base.LikelihoodModel):
         base index (or the model's index if the base index was not given) and
         then falling back to try again with the model row labels as the base
         index.
-
         """
         try:
             loc, index, index_was_expanded = (
@@ -511,7 +520,6 @@ class TimeSeriesModel(base.LikelihoodModel):
         is because integers for a RangeIndex could refer either to index values
         or to index locations in an ambiguous way (while for `Int64Index`,
         since we have required them to be full indexes, there is no ambiguity).
-
         """
 
         # Convert index keys (start, end) to index locations and get associated
@@ -567,11 +575,16 @@ class TimeSeriesModel(base.LikelihoodModel):
             if self.data.row_labels is not None and not (start_oos or end_oos):
                 prediction_index = self.data.row_labels[start:end + 1]
             # Otherwise, warn the user that they will get an Int64Index
-            elif not silent:
-                warnings.warn('No supported index is available.'
-                              ' Prediction results will be given with'
-                              ' an integer index beginning at `start`.',
-                              ValueWarning)
+            else:
+                if not silent:
+                    warnings.warn('No supported index is available.'
+                                  ' Prediction results will be given with'
+                                  ' an integer index beginning at `start`.',
+                                  ValueWarning)
+                warnings.warn('No supported index is available. In the next'
+                              ' version, calling this method in a model'
+                              ' without a supported index will result in an'
+                              ' exception.', DeprecationWarning)
         elif self._index_none:
             prediction_index = None
 

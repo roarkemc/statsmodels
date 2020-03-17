@@ -111,8 +111,6 @@ def powerdiscrepancy(observed, expected, lambd=0.0, axis=0, ddof=0):
     (array([[ 2.89714546,  5.79429093]]), array([[ 0.57518277,  0.21504648]]))
     >>> powerdiscrepancy(np.column_stack((observed,2*observed)), np.column_stack((10*expected,20*expected)), lambd=-1, axis=0)
     (array([[ 2.77258872,  5.54517744]]), array([[ 0.59657359,  0.2357868 ]]))
-
-
     """
     o = np.array(observed)
     e = np.array(expected)
@@ -250,7 +248,7 @@ def gof_binning_discrete(rvs, distfn, arg, nsupp=20):
 
     Parameters
     ----------
-    rvs : array
+    rvs : ndarray
         sample data
     distname : str
         name of distribution function
@@ -262,11 +260,11 @@ def gof_binning_discrete(rvs, distfn, arg, nsupp=20):
 
     Returns
     -------
-    freq : array
+    freq : ndarray
         empirical frequencies for sample; not normalized, adds up to sample size
-    expfreq : array
+    expfreq : ndarray
         theoretical frequencies according to distribution
-    histsupp : array
+    histsupp : ndarray
         bin boundaries for histogram, (added 1e-8 for numerical robustness)
 
     Notes

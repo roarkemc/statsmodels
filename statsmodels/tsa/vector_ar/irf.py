@@ -9,8 +9,6 @@ import scipy.linalg as L
 
 
 from statsmodels.tools.decorators import cache_readonly
-from statsmodels.tools.tools import chain_dot
-#from statsmodels.tsa.api import VAR
 import statsmodels.tsa.tsatools as tsa
 import statsmodels.tsa.vector_ar.plotting as plotting
 import statsmodels.tsa.vector_ar.util as util
@@ -203,7 +201,6 @@ class BaseIRAnalysis(object):
             Number of replications for monte carlo standard errors
         seed: int
             np.random.seed for Monte Carlo replications
-
         """
 
         if orth:
@@ -280,7 +277,7 @@ class IRAnalysis(BaseIRAnalysis):
         covs[0] = np.zeros((self.neqs ** 2, self.neqs ** 2))
         for i in range(1, self.periods + 1):
             Gi = self.G[i - 1]
-            covs[i] = chain_dot(Gi, self.cov_a, Gi.T)
+            covs[i] = Gi @ self.cov_a @ Gi.T
 
         return covs
 
@@ -509,7 +506,6 @@ class IRAnalysis(BaseIRAnalysis):
         W: array of eigenvectors
         eigva: list of eigenvalues
         k: matrix indicating column # of largest eigenvalue for each c_i,j
-
         """
         neqs = self.neqs
         periods = self.periods
@@ -572,10 +568,10 @@ class IRAnalysis(BaseIRAnalysis):
                 apiece = 0
             else:
                 Ci = np.dot(PIk, self.G[i-1])
-                apiece = chain_dot(Ci, self.cov_a, Ci.T)
+                apiece = Ci @ self.cov_a @ Ci.T
 
             Cibar = np.dot(np.kron(Ik, self.irfs[i]), H)
-            bpiece = chain_dot(Cibar, self.cov_sig, Cibar.T) / self.T
+            bpiece = (Cibar @ self.cov_sig @ Cibar.T) / self.T
 
             # Lutkepohl typo, cov_sig correct
             covs[i] = apiece + bpiece
@@ -597,7 +593,6 @@ class IRAnalysis(BaseIRAnalysis):
 
         Returns
         -------
-
         """
         Ik = np.eye(self.neqs)
         PIk = np.kron(self.P.T, Ik)
@@ -613,10 +608,10 @@ class IRAnalysis(BaseIRAnalysis):
                     apiece = 0
                 else:
                     Bn = np.dot(PIk, F)
-                    apiece = chain_dot(Bn, self.cov_a, Bn.T)
+                    apiece = Bn @ self.cov_a @ Bn.T
 
                 Bnbar = np.dot(np.kron(Ik, self.cum_effects[i]), self.H)
-                bpiece = chain_dot(Bnbar, self.cov_sig, Bnbar.T) / self.T
+                bpiece = (Bnbar @ self.cov_sig @ Bnbar.T) / self.T
 
                 covs[i] = apiece + bpiece
             else:
@@ -624,7 +619,7 @@ class IRAnalysis(BaseIRAnalysis):
                     covs[i] = np.zeros((self.neqs**2, self.neqs**2))
                     continue
 
-                covs[i] = chain_dot(F, self.cov_a, F.T)
+                covs[i] = F @ self.cov_a @ F.T
 
         return covs
 
@@ -642,7 +637,6 @@ class IRAnalysis(BaseIRAnalysis):
         """
         Returns
         -------
-
         """
         lre = self.lr_effects
         Finfty = np.kron(np.tile(lre.T, self.lags), lre)
@@ -652,10 +646,10 @@ class IRAnalysis(BaseIRAnalysis):
             Binf = np.dot(np.kron(self.P.T, np.eye(self.neqs)), Finfty)
             Binfbar = np.dot(np.kron(Ik, lre), self.H)
 
-            return (chain_dot(Binf, self.cov_a, Binf.T) +
-                    chain_dot(Binfbar, self.cov_sig, Binfbar.T))
+            return (Binf @ self.cov_a @ Binf.T +
+                    Binfbar @ self.cov_sig @ Binfbar.T)
         else:
-            return chain_dot(Finfty, self.cov_a, Finfty.T)
+            return Finfty @ self.cov_a @ Finfty.T
 
     def stderr(self, orth=False):
         return np.array([tsa.unvec(np.sqrt(np.diag(c)))
@@ -680,14 +674,11 @@ class IRAnalysis(BaseIRAnalysis):
         Kkk = tsa.commutation_matrix(k, k)
         Ik = np.eye(k)
 
-        # B = chain_dot(Lk, np.eye(k**2) + commutation_matrix(k, k),
-        #               np.kron(self.P, np.eye(k)), Lk.T)
+        # B = Lk @ (np.eye(k**2) + commutation_matrix(k, k)) @ \
+        #     np.kron(self.P, np.eye(k)) @ Lk.T
+        # return Lk.T @ L.inv(B)
 
-        # return np.dot(Lk.T, L.inv(B))
-
-        B = chain_dot(Lk,
-                      np.dot(np.kron(Ik, self.P), Kkk) + np.kron(self.P, Ik),
-                      Lk.T)
+        B = Lk @ (np.kron(Ik, self.P) @ Kkk + np.kron(self.P, Ik)) @ Lk.T
 
         return np.dot(Lk.T, L.inv(B))
 

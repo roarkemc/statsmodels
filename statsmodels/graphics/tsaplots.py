@@ -57,10 +57,11 @@ def _plot_corr(ax, title, acf_x, confint, lags, irregular, use_vlines,
                         confint[:, 1] - acf_x, alpha=.25)
 
 
-def plot_acf(x, ax=None, lags=None, alpha=.05, use_vlines=True, unbiased=False,
-             fft=False, title='Autocorrelation', zero=True,
-             vlines_kwargs=None, **kwargs):
-    """Plot the autocorrelation function
+def plot_acf(x, ax=None, lags=None, *, alpha=.05, use_vlines=True,
+             unbiased=False, fft=False, missing='none',
+             title='Autocorrelation', zero=True, vlines_kwargs=None, **kwargs):
+    """
+    Plot the autocorrelation function
 
     Plots lags on the horizontal and the correlations on vertical axis.
 
@@ -68,11 +69,11 @@ def plot_acf(x, ax=None, lags=None, alpha=.05, use_vlines=True, unbiased=False,
     ----------
     x : array_like
         Array of time-series values
-    ax : Matplotlib AxesSubplot instance, optional
+    ax : AxesSubplot, optional
         If given, this subplot is used to plot in instead of a new figure being
         created.
-    lags : int or array_like, optional
-        int or Array of lag values, used on horizontal axis. Uses
+    lags : {int, array_like}, optional
+        An int or array of lag values, used on horizontal axis. Uses
         np.arange(lags) when lags is an int.  If not provided,
         ``lags=np.arange(len(corr))`` is used.
     alpha : scalar, optional
@@ -88,6 +89,9 @@ def plot_acf(x, ax=None, lags=None, alpha=.05, use_vlines=True, unbiased=False,
         If True, then denominators for autocovariance are n-k, otherwise n
     fft : bool, optional
         If True, computes the ACF via FFT.
+    missing : str, optional
+        A string in ['none', 'raise', 'conservative', 'drop'] specifying how
+        the NaNs are to be treated.
     title : str, optional
         Title to place on plot.  Default is 'Autocorrelation'
     zero : bool, optional
@@ -101,7 +105,7 @@ def plot_acf(x, ax=None, lags=None, alpha=.05, use_vlines=True, unbiased=False,
 
     Returns
     -------
-    fig : Matplotlib figure instance
+    Figure
         If `ax` is None, the created figure.  Otherwise the figure to which
         `ax` is connected.
 
@@ -145,12 +149,10 @@ def plot_acf(x, ax=None, lags=None, alpha=.05, use_vlines=True, unbiased=False,
 
     confint = None
     # acf has different return type based on alpha
-    if alpha is None:
-        acf_x = acf(x, nlags=nlags, alpha=alpha, fft=fft,
-                    unbiased=unbiased)
-    else:
-        acf_x, confint = acf(x, nlags=nlags, alpha=alpha, fft=fft,
-                             unbiased=unbiased)
+    acf_x = acf(x, nlags=nlags, alpha=alpha, fft=fft, unbiased=unbiased,
+                missing=missing)
+    if alpha is not None:
+        acf_x, confint = acf_x
 
     _plot_corr(ax, title, acf_x, confint, lags, irregular, use_vlines,
                vlines_kwargs, **kwargs)
@@ -168,11 +170,11 @@ def plot_pacf(x, ax=None, lags=None, alpha=.05, method='ywunbiased',
     ----------
     x : array_like
         Array of time-series values
-    ax : Matplotlib AxesSubplot instance, optional
+    ax : AxesSubplot, optional
         If given, this subplot is used to plot in instead of a new figure being
         created.
-    lags : int or array_like, optional
-        int or Array of lag values, used on horizontal axis. Uses
+    lags : {int, array_like}, optional
+        An int or array of lag values, used on horizontal axis. Uses
         np.arange(lags) when lags is an int.  If not provided,
         ``lags=np.arange(len(corr))`` is used.
     alpha : float, optional
@@ -207,7 +209,7 @@ def plot_pacf(x, ax=None, lags=None, alpha=.05, method='ywunbiased',
 
     Returns
     -------
-    fig : Matplotlib figure instance
+    Figure
         If `ax` is None, the created figure.  Otherwise the figure to which
         `ax` is connected.
 
@@ -275,7 +277,7 @@ def seasonal_plot(grouped_x, xticklabels, ylabel=None, ax=None):
         List of season labels, one for each group.
     ylabel : str
         Lable for y axis
-    ax : Matplotlib AxesSubplot instance, optional
+    ax : AxesSubplot, optional
         If given, this subplot is used to plot in instead of a new figure being
         created.
     """
@@ -302,7 +304,7 @@ def seasonal_plot(grouped_x, xticklabels, ylabel=None, ax=None):
 
 def month_plot(x, dates=None, ylabel=None, ax=None):
     """
-    Seasonal plot of monthly data
+    Seasonal plot of monthly data.
 
     Parameters
     ----------
@@ -314,12 +316,14 @@ def month_plot(x, dates=None, ylabel=None, ax=None):
     ylabel : str, optional
         The label for the y-axis. Will attempt to use the `name` attribute
         of the Series.
-    ax : matplotlib.axes, optional
+    ax : Axes, optional
         Existing axes instance.
 
     Returns
     -------
-    matplotlib.Figure
+    Figure
+       If `ax` is provided, the Figure instance attached to `ax`. Otherwise
+       a new Figure instance.
 
     Examples
     --------
@@ -368,7 +372,9 @@ def quarter_plot(x, dates=None, ylabel=None, ax=None):
 
     Returns
     -------
-    matplotlib.Figure
+    Figure
+       If `ax` is provided, the Figure instance attached to `ax`. Otherwise
+       a new Figure instance.
 
     Examples
     --------

@@ -20,7 +20,8 @@ from statsmodels.tools.sm_exceptions import (
     ValueWarning, HessianInversionWarning, SpecificationWarning,
     MissingDataError)
 from statsmodels.tools.testing import assert_equal
-from statsmodels.tsa.arima_model import AR, ARMA, ARIMA
+from statsmodels.tsa.ar_model import AutoReg
+from statsmodels.tsa.arima_model import ARMA, ARIMA
 from statsmodels.tsa.arima_process import arma_generate_sample
 from statsmodels.tsa.arma_mle import Arma
 from statsmodels.tsa.tests.results import results_arma, results_arima
@@ -2519,8 +2520,8 @@ def test_endog_int():
     y = np.random.randint(0, 16, size=100)
     yf = y.astype(np.float64)
 
-    res = AR(y).fit(5)
-    resf = AR(yf).fit(5)
+    res = AutoReg(y, 5).fit()
+    resf = AutoReg(yf, 5).fit()
     assert_allclose(res.params, resf.params, atol=1e-5)
     assert_allclose(res.bse, resf.bse, atol=1e-5)
 
@@ -2685,7 +2686,7 @@ def test_arma_repeated_fit():
     arma = ARMA(x, (1, 1))
     res = arma.fit(trend='c', disp=-1)
     repeat = arma.fit(trend='c', disp=-1)
-    rtol = 1e-5 if PLATFORM_WIN32 else 1e-7
+    rtol = 1e-4 if PLATFORM_WIN32 else 1e-7
     assert_allclose(res.params, repeat.params, rtol=rtol)
     assert isinstance(res.summary().as_text(), str)
     assert isinstance(repeat.summary().as_text(), str)
@@ -2737,7 +2738,9 @@ def test_nan_exog_arima_d1():
 
 
 def test_arma_exog_const_trend_nc(reset_randomstate):
-    y = np.random.randn(1000)
     x = np.ones((1000, 1))
-    res = ARMA(y, (2, 1), exog=x).fit(trend='nc')
+    y = arma_generate_sample([1, -1.2, 0.5], [1, 0.7], 1000,
+                             distrvs=np.random.standard_normal)
+    y += 1
+    res = ARMA(y, (2, 1), exog=x).fit(trend='nc', disp=-1)
     assert res.params.shape[0] == 4

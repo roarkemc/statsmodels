@@ -1,14 +1,13 @@
 import numpy as np
 import pytest
 import statsmodels.api as sm
-from numpy.testing import assert_equal, assert_raises
+from numpy.testing import assert_equal, assert_raises, assert_array_less
 from statsmodels.graphics.regressionplots import (plot_fit, plot_ccpr,
                   plot_regress_exog, abline_plot,
                   plot_partregress_grid, plot_ccpr_grid, add_lowess,
                   plot_added_variable, plot_partial_residuals,
                   plot_ceres_residuals, influence_plot, plot_leverage_resid2)
 from pandas import Series, DataFrame
-from numpy.testing.utils import assert_array_less
 
 try:
     import matplotlib.pyplot as plt
@@ -141,9 +140,9 @@ class TestPlotFormula(TestPlotPandas):
     def test_one_column_exog(self, close_figures):
         from statsmodels.formula.api import ols
         res = ols("y~var1-1", data=self.data).fit()
-        fig = plot_regress_exog(res, "var1")
+        plot_regress_exog(res, "var1")
         res = ols("y~var1", data=self.data).fit()
-        fig = plot_regress_exog(res, "var1")
+        plot_regress_exog(res, "var1")
 
 
 class TestABLine(object):

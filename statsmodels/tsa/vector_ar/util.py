@@ -42,7 +42,7 @@ def get_trendorder(trend='c'):
     # Handle constant, etc.
     if trend == 'c':
         trendorder = 1
-    elif trend == 'nc':
+    elif trend in ('n', 'nc'):
         trendorder = 0
     elif trend == 'ct':
         trendorder = 2
@@ -59,7 +59,6 @@ def make_lag_names(names, lag_order, trendorder=1, exog=None):
     --------
     >>> make_lag_names(['foo', 'bar'], 2, 1)
     ['const', 'L1.foo', 'L1.bar', 'L2.foo', 'L2.bar']
-
     """
     lag_names = []
     if isinstance(names, str):
@@ -80,8 +79,18 @@ def make_lag_names(names, lag_order, trendorder=1, exog=None):
     if trendorder > 2:
         lag_names.insert(2, 'trend**2')
     if exog is not None:
+        if isinstance(exog, pd.Series):
+            exog = pd.DataFrame(exog)
+        elif not hasattr(exog, 'ndim'):
+            exog = np.asarray(exog)
+        if exog.ndim == 1:
+            exog = exog[:, None]
         for i in range(exog.shape[1]):
-            lag_names.insert(trendorder + i, "exog" + str(i))
+            if isinstance(exog, pd.DataFrame):
+                exog_name = str(exog.columns[i])
+            else:
+                exog_name = "exog" + str(i)
+            lag_names.insert(trendorder + i, exog_name)
     return lag_names
 
 
@@ -212,7 +221,6 @@ def varsim(coefs, intercept, sig_u, steps=100, initvalues=None, seed=None):
     -------
     endog_simulated : nd_array
         Endog of the simulated VAR process
-
     """
     rs = np.random.RandomState(seed=seed)
     rmvnorm = rs.multivariate_normal

@@ -1,6 +1,7 @@
 """
 Test functions for models.tools
 """
+from statsmodels.compat.pandas import assert_frame_equal, assert_series_equal
 from statsmodels.compat.python import lrange
 
 import string
@@ -10,7 +11,6 @@ from numpy.random import standard_normal
 from numpy.testing import (assert_equal, assert_array_equal,
                            assert_almost_equal, assert_string_equal)
 import pandas as pd
-from pandas.util.testing import assert_frame_equal, assert_series_equal
 import pytest
 
 from statsmodels.datasets import longley
@@ -18,7 +18,7 @@ from statsmodels.tools import tools
 from statsmodels.tools.tools import pinv_extended
 
 
-@pytest.fixture('module')
+@pytest.fixture(scope='module')
 def string_var():
     string_var = [string.ascii_lowercase[0:5],
                   string.ascii_lowercase[5:10],
@@ -73,7 +73,8 @@ class TestTools(object):
                       (7, 'abcd', 2.0, 4.0),
                       (21, 'abcd', 2.0, 8.0)], dt)
         x = x.view(np.recarray)
-        y = tools.add_constant(x)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            y = tools.add_constant(x)
         assert_equal(y['const'],np.array([1.0,1.0,1.0]))
         for f in x.dtype.fields:
             assert y[f].dtype == x[f].dtype
@@ -246,7 +247,8 @@ class TestCategoricalNumerical(object):
         assert_equal(des.shape[1],5)
 
     def test_recarray2d(self):
-        des = tools.categorical(self.recdes, col='instrument')
+        with pytest.warns(FutureWarning, match="recarray support"):
+            des = tools.categorical(self.recdes, col='instrument')
         # better way to do this?
         test_des = np.column_stack(([des[_] for _ in des.dtype.names[-5:]]))
         assert_array_equal(test_des, self.dummy)
@@ -255,62 +257,72 @@ class TestCategoricalNumerical(object):
     def test_recarray2d_error(self):
         arr = np.c_[self.recdes, self.recdes]
         with pytest.raises(IndexError, match='col is None and the input'):
-            tools.categorical(arr, col=None)
+            with pytest.warns(FutureWarning, match="recarray support"):
+                tools.categorical(arr, col=None)
 
     def test_recarray2dint(self):
-        des = tools.categorical(self.recdes, col=2)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            des = tools.categorical(self.recdes, col=2)
         test_des = np.column_stack(([des[_] for _ in des.dtype.names[-5:]]))
         assert_array_equal(test_des, self.dummy)
         assert_equal(len(des.dtype.names), 9)
 
     def test_recarray1d(self):
         instr = self.structdes['instrument'].view(np.recarray)
-        dum = tools.categorical(instr)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            dum = tools.categorical(instr)
         test_dum = np.column_stack(([dum[_] for _ in dum.dtype.names[-5:]]))
         assert_array_equal(test_dum, self.dummy)
         assert_equal(len(dum.dtype.names), 6)
 
     def test_recarray1d_drop(self):
         instr = self.structdes['instrument'].view(np.recarray)
-        dum = tools.categorical(instr, drop=True)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            dum = tools.categorical(instr, drop=True)
         test_dum = np.column_stack(([dum[_] for _ in dum.dtype.names]))
         assert_array_equal(test_dum, self.dummy)
         assert_equal(len(dum.dtype.names), 5)
 
     def test_recarray2d_drop(self):
-        des = tools.categorical(self.recdes, col='instrument', drop=True)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            des = tools.categorical(self.recdes, col='instrument', drop=True)
         test_des = np.column_stack(([des[_] for _ in des.dtype.names[-5:]]))
         assert_array_equal(test_des, self.dummy)
         assert_equal(len(des.dtype.names), 8)
 
     def test_structarray2d(self):
-        des = tools.categorical(self.structdes, col='instrument')
+        with pytest.warns(FutureWarning, match="recarray support"):
+            des = tools.categorical(self.structdes, col='instrument')
         test_des = np.column_stack(([des[_] for _ in des.dtype.names[-5:]]))
         assert_array_equal(test_des, self.dummy)
         assert_equal(len(des.dtype.names), 9)
 
     def test_structarray2dint(self):
-        des = tools.categorical(self.structdes, col=2)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            des = tools.categorical(self.structdes, col=2)
         test_des = np.column_stack(([des[_] for _ in des.dtype.names[-5:]]))
         assert_array_equal(test_des, self.dummy)
         assert_equal(len(des.dtype.names), 9)
 
     def test_structarray1d(self):
         instr = self.structdes['instrument'].view(dtype=[('var1', 'f4')])
-        dum = tools.categorical(instr)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            dum = tools.categorical(instr)
         test_dum = np.column_stack(([dum[_] for _ in dum.dtype.names[-5:]]))
         assert_array_equal(test_dum, self.dummy)
         assert_equal(len(dum.dtype.names), 6)
 
     def test_structarray2d_drop(self):
-        des = tools.categorical(self.structdes, col='instrument', drop=True)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            des = tools.categorical(self.structdes, col='instrument', drop=True)
         test_des = np.column_stack(([des[_] for _ in des.dtype.names[-5:]]))
         assert_array_equal(test_des, self.dummy)
         assert_equal(len(des.dtype.names), 8)
 
     def test_structarray1d_drop(self):
         instr = self.structdes['instrument'].view(dtype=[('var1', 'f4')])
-        dum = tools.categorical(instr, drop=True)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            dum = tools.categorical(instr, drop=True)
         test_dum = np.column_stack(([dum[_] for _ in dum.dtype.names]))
         assert_array_equal(test_dum, self.dummy)
         assert_equal(len(dum.dtype.names), 5)
@@ -398,66 +410,76 @@ class TestCategoricalString(TestCategoricalNumerical):
         assert_equal(des.shape[1], 5)
 
     def test_recarray2d(self):
-        des = tools.categorical(self.recdes, col='str_instr')
+        with pytest.warns(FutureWarning, match="recarray support"):
+            des = tools.categorical(self.recdes, col='str_instr')
         # TODO: better way to do this?
         test_des = np.column_stack(([des[_] for _ in des.dtype.names[-5:]]))
         assert_array_equal(test_des, self.dummy)
         assert_equal(len(des.dtype.names), 9)
 
     def test_recarray2dint(self):
-        des = tools.categorical(self.recdes, col=3)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            des = tools.categorical(self.recdes, col=3)
         test_des = np.column_stack(([des[_] for _ in des.dtype.names[-5:]]))
         assert_array_equal(test_des, self.dummy)
         assert_equal(len(des.dtype.names), 9)
 
     def test_recarray1d(self):
         instr = self.structdes['str_instr'].view(np.recarray)
-        dum = tools.categorical(instr)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            dum = tools.categorical(instr)
         test_dum = np.column_stack(([dum[_] for _ in dum.dtype.names[-5:]]))
         assert_array_equal(test_dum, self.dummy)
         assert_equal(len(dum.dtype.names), 6)
 
     def test_recarray1d_drop(self):
         instr = self.structdes['str_instr'].view(np.recarray)
-        dum = tools.categorical(instr, drop=True)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            dum = tools.categorical(instr, drop=True)
         test_dum = np.column_stack(([dum[_] for _ in dum.dtype.names]))
         assert_array_equal(test_dum, self.dummy)
         assert_equal(len(dum.dtype.names), 5)
 
     def test_recarray2d_drop(self):
-        des = tools.categorical(self.recdes, col='str_instr', drop=True)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            des = tools.categorical(self.recdes, col='str_instr', drop=True)
         test_des = np.column_stack(([des[_] for _ in des.dtype.names[-5:]]))
         assert_array_equal(test_des, self.dummy)
         assert_equal(len(des.dtype.names), 8)
 
     def test_structarray2d(self):
-        des = tools.categorical(self.structdes, col='str_instr')
+        with pytest.warns(FutureWarning, match="recarray support"):
+            des = tools.categorical(self.structdes, col='str_instr')
         test_des = np.column_stack(([des[_] for _ in des.dtype.names[-5:]]))
         assert_array_equal(test_des, self.dummy)
         assert_equal(len(des.dtype.names), 9)
 
     def test_structarray2dint(self):
-        des = tools.categorical(self.structdes, col=3)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            des = tools.categorical(self.structdes, col=3)
         test_des = np.column_stack(([des[_] for _ in des.dtype.names[-5:]]))
         assert_array_equal(test_des, self.dummy)
         assert_equal(len(des.dtype.names), 9)
 
     def test_structarray1d(self):
         instr = self.structdes['str_instr'].view(dtype=[('var1', 'a10')])
-        dum = tools.categorical(instr)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            dum = tools.categorical(instr)
         test_dum = np.column_stack(([dum[_] for _ in dum.dtype.names[-5:]]))
         assert_array_equal(test_dum, self.dummy)
         assert_equal(len(dum.dtype.names), 6)
 
     def test_structarray2d_drop(self):
-        des = tools.categorical(self.structdes, col='str_instr', drop=True)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            des = tools.categorical(self.structdes, col='str_instr', drop=True)
         test_des = np.column_stack(([des[_] for _ in des.dtype.names[-5:]]))
         assert_array_equal(test_des, self.dummy)
         assert_equal(len(des.dtype.names), 8)
 
     def test_structarray1d_drop(self):
         instr = self.structdes['str_instr'].view(dtype=[('var1', 'a10')])
-        dum = tools.categorical(instr, drop=True)
+        with pytest.warns(FutureWarning, match="recarray support"):
+            dum = tools.categorical(instr, drop=True)
         test_dum = np.column_stack(([dum[_] for _ in dum.dtype.names]))
         assert_array_equal(test_dum, self.dummy)
         assert_equal(len(dum.dtype.names), 5)
@@ -485,14 +507,16 @@ class TestCategoricalString(TestCategoricalNumerical):
 
 def test_rec_issue302():
     arr = np.rec.fromrecords([[10], [11]], names='group')
-    actual = tools.categorical(arr)
+    with pytest.warns(FutureWarning, match="recarray support"):
+        actual = tools.categorical(arr)
     expected = np.rec.array([(10, 1.0, 0.0), (11, 0.0, 1.0)],
         dtype=[('group', int), ('group_10', float), ('group_11', float)])
     assert_array_equal(actual, expected)
 
 def test_issue302():
     arr = np.rec.fromrecords([[10, 12], [11, 13]], names=['group', 'whatever'])
-    actual = tools.categorical(arr, col=['group'])
+    with pytest.warns(FutureWarning, match="recarray support"):
+        actual = tools.categorical(arr, col=['group'])
     expected = np.rec.array([(10, 12, 1.0, 0.0), (11, 13, 0.0, 1.0)],
         dtype=[('group', int), ('whatever', int), ('group_10', float),
                ('group_11', float)])
@@ -525,13 +549,6 @@ def test_pandas_const_df_prepend():
     dta = tools.add_constant(dta, prepend=True)
     assert_string_equal('const', dta.columns[0])
     assert_equal(dta.var(0)[0], 0)
-
-
-def test_chain_dot():
-    A = np.arange(1,13).reshape(3,4)
-    B = np.arange(3,15).reshape(4,3)
-    C = np.arange(5,8).reshape(3,1)
-    assert_equal(tools.chain_dot(A,B,C), np.array([[1820],[4300],[6780]]))
 
 
 class TestNanDot(object):

@@ -19,7 +19,7 @@ from statsmodels.tsa import arima_model as arima
 from .results import results_sarimax
 from statsmodels.tools import add_constant
 from numpy.testing import (
-    assert_equal, assert_almost_equal, assert_raises, assert_allclose
+    assert_, assert_equal, assert_almost_equal, assert_raises, assert_allclose
 )
 
 
@@ -2177,11 +2177,6 @@ def test_arima000():
     res = mod.smooth(mod.start_params)
     assert_allclose(res.smoothed_state[1:, 1:], endog.diff()[1:].T)
 
-    # SARIMA(0, 1, 0)x(0, 1, 0, 1)
-    mod = sarimax.SARIMAX(endog, order=(0, 1, 0), measurement_error=True,
-                          seasonal_order=(0, 1, 0, 1))
-    res = mod.smooth(mod.start_params)
-
     # Exogenous variables
     error = np.random.normal(size=nobs)
     endog = np.ones(nobs) * 10 + error
@@ -2540,6 +2535,10 @@ def test_append_results():
     assert_allclose(res3.forecast(10, exog=np.ones(10)),
                     res1.forecast(10, exog=np.ones(10)))
 
+    # Check that we get an error if we try to append without exog
+    with pytest.raises(ValueError, match='Cloning a model with an exogenous'):
+        res2.append(endog[50:])
+
 
 def test_extend_results():
     endog = np.arange(100)
@@ -2577,6 +2576,10 @@ def test_extend_results():
 
     assert_allclose(res3.forecast(10, exog=np.ones(10)),
                     res1.forecast(10, exog=np.ones(10)))
+
+    # Check that we get an error if we try to extend without exog
+    with pytest.raises(ValueError, match='Cloning a model with an exogenous'):
+        res2.extend(endog[50:])
 
 
 def test_apply_results():
@@ -2618,6 +2621,10 @@ def test_apply_results():
     assert_allclose(res3.forecast(10, exog=np.ones(10)),
                     res1.forecast(10, exog=np.ones(10)))
 
+    # Check that we get an error if we try to apply without exog
+    with pytest.raises(ValueError, match='Cloning a model with an exogenous'):
+        res2.apply(endog[50:])
+
 
 def test_start_params_small_nobs():
     # Test that starting parameters work even when nobs is very small, but
@@ -2640,3 +2647,63 @@ def test_start_params_small_nobs():
     with pytest.warns(UserWarning, match=match):
         start_params = mod.start_params
         assert_allclose(start_params, [0, np.var(endog[:4])])
+
+
+def test_simple_differencing_int64index():
+    values = np.log(realgdp_results['value']).values
+    endog = pd.Series(values, index=pd.Int64Index(range(len(values))))
+    mod = sarimax.SARIMAX(endog, order=(1, 1, 0), simple_differencing=True)
+
+    assert_(mod._index.equals(endog.index[1:]))
+
+
+def test_simple_differencing_rangeindex():
+    values = np.log(realgdp_results['value']).values
+    endog = pd.Series(values, index=pd.RangeIndex(start=0, stop=len(values)))
+    mod = sarimax.SARIMAX(endog, order=(1, 1, 0), simple_differencing=True)
+
+    assert_(mod._index.equals(endog.index[1:]))
+
+
+def test_simple_differencing_dateindex():
+    values = np.log(realgdp_results['value']).values
+    endog = pd.Series(values, index=pd.period_range(
+        start='2000', periods=len(values), freq='M'))
+    mod = sarimax.SARIMAX(endog, order=(1, 1, 0), simple_differencing=True)
+
+    assert_(mod._index.equals(endog.index[1:]))
+
+
+def test_simple_differencing_strindex():
+    values = np.log(realgdp_results['value']).values
+    index = pd.Int64Index(range(len(values))).map(str)
+    endog = pd.Series(values, index=index)
+    with pytest.warns(UserWarning):
+        mod = sarimax.SARIMAX(endog, order=(1, 1, 0), simple_differencing=True)
+
+    assert_(mod._index.equals(pd.RangeIndex(start=0, stop=len(values) - 1)))
+    assert_(mod.data.row_labels.equals(index[1:]))
+
+
+def test_invalid_order():
+    endog = np.zeros(10)
+    with pytest.raises(ValueError):
+        sarimax.SARIMAX(endog, order=(1,))
+    with pytest.raises(ValueError):
+        sarimax.SARIMAX(endog, order=(1, 2, 3, 4))
+
+
+def test_invalid_seasonal_order():
+    endog = np.zeros(10)
+    with pytest.raises(ValueError):
+        sarimax.SARIMAX(endog, seasonal_order=(1,))
+    with pytest.raises(ValueError):
+        sarimax.SARIMAX(endog, seasonal_order=(1, 2, 3, 4, 5))
+    with pytest.raises(ValueError):
+        sarimax.SARIMAX(endog, seasonal_order=(1, 0, 0, 0))
+    with pytest.raises(ValueError):
+        sarimax.SARIMAX(endog, seasonal_order=(0, 0, 1, 0))
+    with pytest.raises(ValueError):
+        sarimax.SARIMAX(endog, seasonal_order=(1, 0, 1, 0))
+    with pytest.raises(ValueError):
+        sarimax.SARIMAX(endog, seasonal_order=(0, 0, 0, 1))

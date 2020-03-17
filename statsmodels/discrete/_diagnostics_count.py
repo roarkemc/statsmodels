@@ -50,7 +50,6 @@ def _combine_bins(edge_index, x):
 
     >>> dia.combine_bins([0,1,3], np.arange(4))
     (array([0, 3]), array([1, 2]))
-
     """
     x = np.asarray(x)
     if x.ndim == 1:
@@ -96,10 +95,9 @@ def plot_probs(freq, probs_predicted, label='predicted', upp_xlim=None,
 
     Returns
     -------
-    fig : matplotlib figure instance
+    Figure
         The figure contains 3 subplot with probabilities, cumulative
         probabilities and a PP-plot
-
     """
 
     if isinstance(label, list):
@@ -143,7 +141,7 @@ def test_chisquare_prob(results, probs, bin_edges=None, method=None):
     ----------
     results : results instance
         Instance of a count regression results
-    probs : array
+    probs : ndarray
         Array of predicted probabilities with observations
         in rows and event counts in columns
     bin_edges : None or array
@@ -214,7 +212,7 @@ def test_poisson_zeroinflation(results_poisson, exog_infl=None):
     results_poisson: results instance
         The test is only valid if the results instance is a Poisson
         model.
-    exog_infl : array
+    exog_infl : ndarray
         Explanatory variables for the zero inflated or zero modified
         alternative. I exog_infl is None, then the inflation
         probability is assumed to be constant.
@@ -246,7 +244,6 @@ def test_poisson_zeroinflation(results_poisson, exog_infl=None):
     References
     ----------
     Jansakul and Hinde 2009
-
     """
     if not isinstance(results_poisson.model, Poisson):
         # GLM Poisson would be also valid, not tried
@@ -291,7 +288,6 @@ def test_poisson_zeroinflation_brock(results_poisson):
 
     The test reports two sided and one sided alternatives based on
     the normal distribution of the test statistic.
-
     """
 
     mu = results_poisson.predict()

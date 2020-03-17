@@ -2,29 +2,25 @@
 """
 Test VAR Model
 """
-from statsmodels.compat.python import iteritems, lrange
-
-from io import StringIO, BytesIO
-import warnings
+from statsmodels.compat.pandas import assert_index_equal
 
 import os
 import sys
+import warnings
+from io import StringIO, BytesIO
 
 import numpy as np
 import pandas as pd
-from pandas.util.testing import assert_index_equal
 import pytest
-
-
-import statsmodels.api as sm
-import statsmodels.tsa.vector_ar.util as util
-import statsmodels.tools.data as data_util
-from statsmodels.tsa.vector_ar.var_model import VAR, var_acf
-from statsmodels.tools.sm_exceptions import ValueWarning
-
-
 from numpy.testing import (assert_almost_equal, assert_equal,
                            assert_allclose)
+
+import statsmodels.api as sm
+import statsmodels.tools.data as data_util
+import statsmodels.tsa.vector_ar.util as util
+from statsmodels.compat.python import iteritems, lrange
+from statsmodels.tools.sm_exceptions import ValueWarning
+from statsmodels.tsa.vector_ar.var_model import VAR, var_acf
 
 DECIMAL_12 = 12
 DECIMAL_6 = 6
@@ -377,6 +373,11 @@ class TestVARResults(CheckIRF, CheckFEVD):
 
         with pytest.raises(Exception):
             self.res.test_causality(0, 1, kind='foo')
+
+    def test_causality_no_lags(self):
+        res = VAR(self.data).fit(maxlags=0)
+        with pytest.raises(RuntimeError, match="0 lags"):
+            res.test_causality(0, 1)
 
     @pytest.mark.smoke
     def test_select_order(self):
@@ -817,3 +818,28 @@ def test_var_cov_params_pandas(bivariate_var_data):
     index = pd.MultiIndex.from_product((exog_names, ('x', 'y')))
     assert_index_equal(cov.index, cov.columns)
     assert_index_equal(cov.index, index)
+
+
+def test_summaries_exog(reset_randomstate):
+    y = np.random.standard_normal((500, 6))
+    df = pd.DataFrame(y)
+    cols = (["endog_{0}".format(i) for i in range(2)] +
+            ["exog_{0}".format(i) for i in range(4)])
+    df.columns = cols
+    df.index = pd.date_range('1-1-1950', periods=500, freq="MS")
+    endog = df.iloc[:, :2]
+    exog = df.iloc[:, 2:]
+
+    res = VAR(endog=endog, exog=exog).fit(maxlags=0)
+    summ = res.summary().summary
+    assert 'exog_0' in summ
+    assert 'exog_1' in summ
+    assert 'exog_2' in summ
+    assert 'exog_3' in summ
+
+    res = VAR(endog=endog, exog=exog).fit(maxlags=2)
+    summ = res.summary().summary
+    assert 'exog_0' in summ
+    assert 'exog_1' in summ
+    assert 'exog_2' in summ
+    assert 'exog_3' in summ

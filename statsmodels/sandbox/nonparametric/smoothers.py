@@ -10,13 +10,7 @@ who generate a smooth fit of a set of (x,y) pairs.
 
 import numpy as np
 from . import kernels
-#import numbers
-#from scipy.linalg import solveh_banded
-#from scipy.optimize import golden
 
-#from models import _hbspline        # Need to alter setup to be able to import
-                                    # extension from models or drop for scipy
-#from models.bspline import BSpline, _band2array
 
 class KernelSmoother(object):
     """
@@ -96,7 +90,6 @@ class PolySmoother(object):
 
     This is a 3 liner with OLS or WLS, see test.
     It's here as a test smoother for GAM
-
     """
     #JP: heavily adjusted to work as plugin replacement for bspline
     #   smoother in gam.py  initialized by function default_smoother

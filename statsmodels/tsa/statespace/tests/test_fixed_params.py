@@ -60,10 +60,12 @@ def test_results_append():
 
     # Check non-refit
     assert_allclose(res2.params, res_full.params)
+    assert_equal(res2._fixed_params, res_full._fixed_params)
     assert_allclose(res2.llf_obs, res_full.llf_obs)
 
     # Check refit results
     assert_allclose(res2_fit.params, res_full_fit.params)
+    assert_equal(res2_fit._fixed_params, res_full_fit._fixed_params)
     assert_allclose(res2_fit.llf_obs, res_full_fit.llf_obs)
 
 
@@ -86,6 +88,7 @@ def test_results_extend():
 
     # Check results
     assert_allclose(res2.params, res_full.params)
+    assert_equal(res2._fixed_params, res_full._fixed_params)
     assert_allclose(res2.llf_obs, res_full.llf_obs)
 
 
@@ -107,10 +110,12 @@ def test_results_apply():
 
     # Check non-refit
     assert_allclose(res2.params, res.params)
+    assert_equal(res2._fixed_params, res._fixed_params)
     assert_allclose(res2.llf_obs, res.llf_obs)
 
     # Check refit results
     assert_allclose(res2_fit.params, res_fit.params)
+    assert_equal(res2_fit._fixed_params, res_fit._fixed_params)
     assert_allclose(res2_fit.llf_obs, res_fit.llf_obs)
 
 
@@ -269,8 +274,8 @@ def test_dynamic_factor_invalid():
         endog[['cpi', 'realgdp']], k_factors=1, factor_order=1,
         error_cov_type='unstructured')
     constraints = {
-        'loading.f1.cpi': 1., 'loading.f1.realgdp': 1., 'sqrt.var.cpi': 0.5,
-        'sqrt.cov.cpi.realgdp': 0.1}
+        'loading.f1.cpi': 1., 'loading.f1.realgdp': 1., 'cov.chol[1,1]': 0.5,
+        'cov.chol[2,1]': 0.1}
     with mod6.fix_params(constraints):
         assert_(mod6._has_fixed_params)
         assert_equal(mod6._fixed_params, constraints)
@@ -561,7 +566,7 @@ def test_dynamic_factor_diag_error_cov():
     mod2 = dynamic_factor.DynamicFactor(
         endog, k_factors=1, factor_order=1, error_cov_type='unstructured')
 
-    constraints = {'sqrt.cov.cpi.realgdp': 0}
+    constraints = {'cov.chol[2,1]': 0}
 
     # Start pretty close to optimum to speed up test
     start_params = [-4.5e-06, -1.0e-05, 9.9e-01, 9.9e-01, -1.4e-01]
@@ -571,7 +576,7 @@ def test_dynamic_factor_diag_error_cov():
 
     # Check that the right parameters were fixed
     assert_equal(res1.fixed_params, [])
-    assert_equal(res2.fixed_params, ['sqrt.cov.cpi.realgdp'])
+    assert_equal(res2.fixed_params, ['cov.chol[2,1]'])
 
     # Check that MLE finds the same parameters in either case
     # (need to account for the fact that diagonal params are variances but

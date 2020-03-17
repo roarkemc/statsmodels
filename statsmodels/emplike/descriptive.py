@@ -62,7 +62,6 @@ class _OptFuncts(object):
     Any method starting with _ci_limits calculates the log likelihood
     ratio for a specific value of a parameter and then subtracts a
     pre-specified critical value.  This is solved so that llr - crit = 0.
-
     """
 
     def __init__(self, endog):
@@ -86,7 +85,7 @@ class _OptFuncts(object):
 
         Returns
         ------
-        data_star : array
+        data_star : ndarray
             The weighted logstar of the estimting equations
 
         Notes
@@ -726,7 +725,7 @@ class DescStatUV(_OptFuncts):
 
         Returns
         -------
-        fig : matplotlib figure instance
+        Figure
             The contour plot
         """
         fig, ax = utils.create_mpl_ax()
@@ -952,7 +951,6 @@ class DescStatMV(_OptFuncts):
 
     nobs : float
         Number of observations
-
     """
 
     def __init__(self, endog):
@@ -1126,7 +1124,6 @@ class DescStatMV(_OptFuncts):
         -------
         interval : tuple
             Confidence interval for the correlation
-
         """
         endog = self.endog
         nobs = self.nobs

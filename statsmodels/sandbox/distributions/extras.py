@@ -14,7 +14,7 @@
 TODO:
 * Where is Transf_gen for general monotonic transformation ? found and added it
 * write some docstrings, some parts I do not remember
-* add Box-Cox transformation, parameterized ?
+* add Box-Cox transformation, parametrized ?
 
 
 this is only partially cleaned, still includes test examples as functions
@@ -231,7 +231,6 @@ def pdf_moments_st(cnt):
 
     version of scipy.stats, any changes ?
     the scipy.stats version has a bug and returns normal distribution
-
     """
 
     N = len(cnt)
@@ -414,7 +413,7 @@ class NormExpan_gen(distributions.rv_continuous):
         where xc = (x-mu)/sig is the standardized value of the random variable
         and H(xc,3) and H(xc,4) are Hermite polynomials
 
-        Note: This distribution has to be parameterized during
+        Note: This distribution has to be parametrized during
         initialization and instantiation, and does not have a shape
         parameter after instantiation (similar to frozen distribution
         except for location and scale.) Location and scale can be used
@@ -794,7 +793,7 @@ class SquareFunc(object):
     '''class to hold quadratic function with inverse function and derivative
 
     using instance methods instead of class methods, if we want extension
-    to parameterized function
+    to parametrized function
     '''
     def inverseplus(self, x):
         return np.sqrt(x)
@@ -905,7 +904,7 @@ a wrapper for scipy.stats.kde.mvndst
 *     CORREL REAL, array of correlation coefficients; the correlation
 *            coefficient in row I column J of the correlation matrix
 *            should be stored in CORREL( J + ((I-2)*(I-1))/2 ), for J < I.
-*            THe correlation matrix must be positive semidefinite.
+*            The correlation matrix must be positive semidefinite.
 *     MAXPTS INTEGER, maximum number of function values allowed. This
 *            parameter can be used to limit the time. A sensible
 *            strategy is to start with MAXPTS = 1000*N, and then

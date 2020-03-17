@@ -2,8 +2,13 @@
 # versions.  Allows substantial flexibility for choosing versions of
 # required packages and is simpler to use to test up-to-date scientific Python
 # stack
-dist: xenial
+dist: bionic
 language: python
+cache:
+  - directories:
+    - $HOME/.cache/pip
+    - $TRAVIS_BUILD_DIR/docs/source/examples/notebooks
+
 
 git:
   depth: 10000
@@ -13,7 +18,8 @@ env:
   global:
     - OPTIONAL=
     - COVERAGE=false
-    - USEMPL=true
+    - USE_MATPLOTLIB=true
+    - USE_CVXOPT=true
     - MATPLOTLIB=
     - DOCBUILD=false
     - LINT=false
@@ -29,11 +35,18 @@ env:
     - secure: "AzwB23FWdilHKVcEJnj57AsoY5yKTWT8cQKzsH2ih9i08wIXvZXP/Ui8XRDygV9tDKfqGVltC7HpBBDE3C4ngeMlis4uuKWlkp0O1757YQe+OdDnimuDZhrh3ILEk7xW3ab5YizjLeyv3iiBW7cNS5z8W3Yu8HeJPkr6Ck30gAA="
     - SM_CYTHON_COVERAGE=false # Run takes > 1 hour and so not feasible
     - PYTEST_OPTIONS=--skip-slow  # skip slow on travis since tested on azure
+    - XDIST_OPTS=""
 
 matrix:
   fast_finish: true
   include:
     # Documentation build (on Python 3.7 + cutting edge packages). Slowest build
+    - python: 3.8
+      env:
+        - BUILD_INIT=tools/ci/travis_pip.sh
+        - USE_MATPLOTLIB=false
+        - USE_CVXOPT=false
+        - LINT=true
     - python: 3.7
       env:
         - PYTHON=3.7
@@ -42,31 +55,32 @@ matrix:
     - python: 3.7
       env:
         - PYTHON=3.7
-        - PANDAS=0.24
-        - LINT=true
+        - PANDAS=0.25
+        - NUMPY=1.17
+        - SCIPY=1.3
         - COVERAGE=true
         - PYTEST_OPTIONS=
     # Python 3.6 + legacy blas + older pandas
     - python: 3.6
       env:
         - PYTHON=3.6
-        - NUMPY=1.15
-        - PANDAS=0.22
-        - SCIPY=1.1
+        - NUMPY=1.16
+        - PANDAS=0.24
+        - SCIPY=1.2
         - BLAS="nomkl blas=*=openblas"
         - COVERAGE=true
         - PYTEST_OPTIONS=
-    # Python 3.5 + oldest packages
-    - python: 3.5
+    # Python 3.6 + oldest packages
+    - python: 3.6
       env:
-        - PYTHON=3.5
-        - NUMPY=1.14
-        - SCIPY=1.0
-        - PANDAS=0.21
+        - PYTHON=3.6
+        - NUMPY=1.15
+        - SCIPY=1.1
+        - PANDAS=0.23
         - MATPLOTLIB=2
         - LINT=true
     # Latest pre-release packages
-    - python: 3.7
+    - python: 3.8
       env:
         - PIP_PRE=true
         - BUILD_INIT=tools/ci/travis_pip.sh
@@ -77,7 +91,7 @@ matrix:
 
   allow_failures:
     # pre-testing is a little fragile. Make it an FYI.
-    - python: 3.7
+    - python: 3.8
       env:
         - PIP_PRE=true
         - BUILD_INIT=tools/ci/travis_pip.sh
@@ -103,8 +117,11 @@ before_install:
   - SRCDIR=$PWD
   # Source recipe to install packages
   - source $BUILD_INIT
-  - pip install pytest pip pytest-randomly nose cvxopt jupyter_client nbformat
-  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then pip install pytest-xdist; fi;
+  - pip install pytest pip pytest-randomly nose jupyter_client nbformat
+  # Moved to enable Python 3.8 since cvxopt wheel is not available
+  - if [ ${USE_CVXOPT} = true ]; then pip install cvxopt; fi
+  # Pin to 1.29 for now due to test discovery issues
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then pip install "pytest-xdist==1.29"; fi;
   - |
     if [ ${COVERAGE} = true ]; then
         pip install codecov coverage coveralls pytest-cov
@@ -118,25 +135,26 @@ before_install:
 
 # Install packages
 install:
-  - python setup.py develop
+  # Bug in NumPy < 1.16.1 that raises ValueError on size mismatch
+  - if [ ${NUMPY} != "1.15" ]; then pip install -e .; else python setup.py develop; fi
 
 before_script:
   - if [ ${DOCBUILD} = true ]; then source tools/ci/docbuild_install.sh; fi;
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then export XDIST_OPTS="-n 2"; fi
 
 script:
   # Show versions
   - python -c 'import statsmodels.api as sm; sm.show_versions();'
-  # docbuild and exit, if required
-  - if [ ${DOCBUILD} = true ]; then cd ${SRCDIR}/docs; source ${SRCDIR}/tools/ci/docbuild.sh; exit 0; fi;
-  # Run tests
+  # docbuild or run tests
   - |
-    if [ "$TRAVIS_OS_NAME" = "osx" ]; then
-        export XDIST_OPTS="-n2"
+    if [ ${DOCBUILD} = true ]; then
+      cd ${SRCDIR}/docs
+      source ${SRCDIR}/tools/ci/docbuild.sh;
     else
-        export XDIST_OPTS=""
+      echo pytest -r a ${COVERAGE_OPTS} statsmodels --skip-examples ${XDIST_OPTS} ${PYTEST_OPTIONS}
+      pytest -r a ${COVERAGE_OPTS} statsmodels --skip-examples ${XDIST_OPTS} ${PYTEST_OPTIONS}
     fi
-  - echo pytest -r a ${COVERAGE_OPTS} statsmodels --skip-examples ${XDIST_OPTS} ${PYTEST_OPTIONS}
-  - pytest -r a ${COVERAGE_OPTS} statsmodels --skip-examples ${XDIST_OPTS} ${PYTEST_OPTIONS}
+  - cd $SRCDIR
   - ./lint.sh
 
 after_success:

@@ -52,7 +52,6 @@ def _split_train_test_smoothers(x, smoother, train_index, test_index):
     """split smoothers in test and train sets and create GenericSmoothers
 
     Note: this does not take exog_linear into account
-
     """
     train_smoothers = []
     test_smoothers = []
@@ -176,10 +175,9 @@ class MultivariateGAMCVPath(object):
         model class for creating a model with k-fole training data
     cost : function
         cost function for the prediction error
-    endog : array
+    endog : ndarray
         dependent (response) variable of the model
     cv_iterator : instance of cross-validation iterator
-
     """
 
     def __init__(self, smoother, alphas, gam, cost, endog, exog, cv_iterator):

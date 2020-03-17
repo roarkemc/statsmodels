@@ -14,7 +14,6 @@ from io import StringIO
 
 import numpy as np
 import pandas as pd
-import scipy.linalg
 import scipy.stats as stats
 
 import statsmodels.base.wrapper as wrap
@@ -25,7 +24,6 @@ from statsmodels.iolib.table import SimpleTable
 from statsmodels.tools.decorators import cache_readonly, deprecated_alias
 from statsmodels.tools.linalg import logdet_symm
 from statsmodels.tools.sm_exceptions import OutputWarning
-from statsmodels.tools.tools import chain_dot
 from statsmodels.tsa.tsatools import vec, unvec, duplication_matrix
 from statsmodels.tsa.vector_ar import output, plotting, util
 from statsmodels.tsa.vector_ar.hypothesis_test_results import \
@@ -160,7 +158,7 @@ def _var_acf(coefs, sig_u):
     SigU[:k, :k] = sig_u
 
     # vec(ACF) = (I_(kp)^2 - kron(A, A))^-1 vec(Sigma_U)
-    vecACF = scipy.linalg.solve(np.eye((k*p)**2) - np.kron(A, A), vec(SigU))
+    vecACF = np.linalg.solve(np.eye((k*p)**2) - np.kron(A, A), vec(SigU))
 
     acf = unvec(vecACF)
     acf = [acf[:k, k * i:k * (i + 1)] for i in range(p)]
@@ -193,7 +191,7 @@ def forecast_cov(ma_coefs, sigma_u, steps):
     for h in range(steps):
         # Sigma(h) = Sigma(h-1) + Phi Sig_u Phi'
         phi = ma_coefs[h]
-        var = chain_dot(phi, sigma_u, phi.T)
+        var = phi @ sigma_u @ phi.T
         forc_covs[h] = prior = prior + var
 
     return forc_covs
@@ -221,8 +219,6 @@ def forecast(y, coefs, trend_coefs, steps, exog=None):
     Notes
     -----
     Lütkepohl p. 37
-
-    Also used by DynamicVAR class
     """
     p = len(coefs)
     k = len(coefs[0])
@@ -271,7 +267,6 @@ def _forecast_vars(steps, ma_coefs, sig_u):
 
     Returns
     -------
-
     """
     covs = mse(ma_coefs, sig_u, steps)
     # Take diagonal for each cov
@@ -596,24 +591,25 @@ class VAR(TimeSeriesModel):
             bic : Bayesian a.k.a. Schwarz
         verbose : bool, default False
             Print order selection output to the screen
-        trend : str {"c", "ct", "ctt", "nc"}
+        trend : str {"c", "ct", "ctt", "nc", "n"}
             "c" - add constant
             "ct" - constant and trend
             "ctt" - constant, linear and quadratic trend
-            "nc" - co constant, no trend
+            "n", "nc" - co constant, no trend
             Note that these are prepended to the columns of the dataset.
-
-        Notes
-        -----
-        Lütkepohl pp. 146-153
 
         Returns
         -------
-        est : VARResultsWrapper
+        VARResults
+            Estimation results
+
+        Notes
+        -----
+        See Lütkepohl pp. 146-153 for implementation details.
         """
         lags = maxlags
 
-        if trend not in ['c', 'ct', 'ctt', 'nc']:
+        if trend not in ['c', 'ct', 'ctt', 'nc', 'n']:
             raise ValueError("trend '{}' not supported for VAR".format(trend))
 
         if ic is not None:
@@ -630,14 +626,18 @@ class VAR(TimeSeriesModel):
                 lags = 1
 
         k_trend = util.get_trendorder(trend)
+        orig_exog_names = self.exog_names
         self.exog_names = util.make_lag_names(self.endog_names, lags, k_trend)
         self.nobs = self.n_totobs - lags
 
         # add exog to data.xnames (necessary because the length of xnames also
         # determines the allowed size of VARResults.params)
         if self.exog is not None:
-            x_names_to_add = [("exog%d" % i)
-                              for i in range(self.exog.shape[1])]
+            if orig_exog_names:
+                x_names_to_add = orig_exog_names
+            else:
+                x_names_to_add = [("exog%d" % i)
+                                  for i in range(self.exog.shape[1])]
             self.data.xnames = (self.data.xnames[:k_trend] +
                                 x_names_to_add +
                                 self.data.xnames[k_trend:])
@@ -669,7 +669,7 @@ class VAR(TimeSeriesModel):
         if exog is not None:
             # TODO: currently only deterministic terms supported (exoglags==0)
             # and since exoglags==0, x will be an array of size 0.
-            x = util.get_var_endog(exog[-nobs:], 0, trend="nc",
+            x = util.get_var_endog(exog[-nobs:], 0, trend="n",
                                    has_constant="raise")
             x_inst = exog[-nobs:]
             x = np.column_stack((x, x_inst))
@@ -776,7 +776,6 @@ class VARProcess(object):
         exog variables provided by the user).
         If it is None, then coefs_exog are assumed to be for the intercept and
         trend.
-
     """
     def __init__(self, coefs, coefs_exog, sigma_u, names=None, _params_info=None):
         self.k_ar = len(coefs)
@@ -860,7 +859,6 @@ class VARProcess(object):
         -------
         endog_simulated : nd_array
             Endog of the simulated VAR process
-
         """
         steps_ = None
         if offset is None:
@@ -965,9 +963,8 @@ class VARProcess(object):
         .. math::
 
             \Psi_\infty = \sum_{i=0}^\infty \Phi_i
-
         """
-        return scipy.linalg.inv(self._char_mat)
+        return np.linalg.inv(self._char_mat)
 
     @cache_readonly
     def _chol_sigma_u(self):
@@ -1080,7 +1077,7 @@ class VARProcess(object):
         for h in range(steps):
             # Sigma(h) = Sigma(h-1) + Phi Sig_u Phi'
             phi = ma_coefs[h]
-            var = chain_dot(phi, self.sigma_u, phi.T)
+            var = phi @ self.sigma_u @ phi.T
             forc_covs[h] = prior = prior + var
 
         return forc_covs
@@ -1158,17 +1155,17 @@ class VARResults(VARProcess):
 
     Parameters
     ----------
-    endog : array
-    endog_lagged : array
-    params : array
-    sigma_u : array
+    endog : ndarray
+    endog_lagged : ndarray
+    params : ndarray
+    sigma_u : ndarray
     lag_order : int
     model : VAR model instance
     trend : str {'nc', 'c', 'ct'}
     names : array_like
         List of names of the endogenous variables in order of appearance in `endog`.
     dates
-    exog : array
+    exog : ndarray
 
     Attributes
     ----------
@@ -1214,7 +1211,8 @@ class VARResults(VARProcess):
         self.nobs = self.n_totobs - lag_order
         self.trend = trend
         k_trend = util.get_trendorder(trend)
-        self.exog_names = util.make_lag_names(names, lag_order, k_trend, exog)
+        self.exog_names = util.make_lag_names(names, lag_order, k_trend,
+                                              model.data.orig_exog)
         self.params = params
         self.exog = exog
 
@@ -1299,7 +1297,7 @@ class VARResults(VARProcess):
 
         Returns
         -------
-        fig : matplotlib.Figure
+        Figure
             The figure that contains the plot axes.
         """
         fig = plotting.plot_full_acorr(self.sample_acorr(nlags=nlags),
@@ -1358,7 +1356,7 @@ class VARResults(VARProcess):
         Ref: Lütkepohl p.74-75
         """
         z = self.endog_lagged
-        return np.kron(scipy.linalg.inv(np.dot(z.T, z)), self.sigma_u)
+        return np.kron(np.linalg.inv(z.T @ z), self.sigma_u)
 
     def cov_ybar(self):
         r"""Asymptotically consistent estimate of covariance of the sample mean
@@ -1375,8 +1373,8 @@ class VARResults(VARProcess):
         Lütkepohl Proposition 3.3
         """
 
-        Ainv = scipy.linalg.inv(np.eye(self.neqs) - self.coefs.sum(0))
-        return chain_dot(Ainv, self.sigma_u, Ainv.T)
+        Ainv = np.linalg.inv(np.eye(self.neqs) - self.coefs.sum(0))
+        return Ainv @ self.sigma_u @ Ainv.T
 
     # ------------------------------------------------------------
     # Estimation-related things
@@ -1404,7 +1402,7 @@ class VARResults(VARProcess):
         D_Kinv = np.linalg.pinv(D_K)
 
         sigxsig = np.kron(self.sigma_u, self.sigma_u)
-        return 2 * chain_dot(D_Kinv, sigxsig, D_Kinv.T)
+        return 2 * D_Kinv @ sigxsig @ D_Kinv.T
 
     @cache_readonly
     def llf(self):
@@ -1620,11 +1618,11 @@ class VARResults(VARProcess):
     def _omega_forc_cov(self, steps):
         # Approximate MSE matrix \Omega(h) as defined in Lut p97
         G = self._zz
-        Ginv = scipy.linalg.inv(G)
+        Ginv = np.linalg.inv(G)
 
         # memoize powers of B for speedup
         # TODO: see if can memoize better
-        # TODO: much lower-hanging fruit in caching `np.trace` and `chain_dot` below.
+        # TODO: much lower-hanging fruit in caching `np.trace` below.
         B = self._bmat_forc_cov()
         _B = {}
 
@@ -1648,8 +1646,8 @@ class VARResults(VARProcess):
                 for j in range(h):
                     Bi = bpow(h - 1 - i)
                     Bj = bpow(h - 1 - j)
-                    mult = np.trace(chain_dot(Bi.T, Ginv, Bj, G))
-                    om += mult * chain_dot(phis[i], sig_u, phis[j].T)
+                    mult = np.trace(Bi.T @ Ginv @ Bj @ G)
+                    om += mult * phis[i] @ sig_u @ phis[j].T
             omegas[h-1] = om
 
         return omegas
@@ -1800,6 +1798,9 @@ class VARResults(VARProcess):
             causing = [self.names[c] for c in caused_ind]
 
         k, p = self.neqs, self.k_ar
+        if p == 0:
+            err = "Cannot test Granger Causality in a model with 0 lags."
+            raise RuntimeError(err)
 
         # number of restrictions
         num_restr = len(causing) * len(caused) * p
@@ -1817,10 +1818,10 @@ class VARResults(VARProcess):
 
         # Lütkepohl 3.6.5
         Cb = np.dot(C, vec(self.params.T))
-        middle = scipy.linalg.inv(chain_dot(C, self.cov_params(), C.T))
+        middle = np.linalg.inv(C @ self.cov_params() @ C.T)
 
         # wald statistic
-        lam_wald = statistic = chain_dot(Cb, middle, Cb)
+        lam_wald = statistic = Cb @ middle @ Cb
 
         if kind.lower() == 'wald':
             df = num_restr
@@ -1938,9 +1939,9 @@ class VARResults(VARProcess):
         Cs = np.dot(C, vech_sigma_u)
         d = np.linalg.pinv(duplication_matrix(k))
         Cd = np.dot(C, d)
-        middle = scipy.linalg.inv(chain_dot(Cd, np.kron(sigma_u, sigma_u), Cd.T)) / 2
+        middle = np.linalg.inv(Cd @ np.kron(sigma_u, sigma_u) @ Cd.T) / 2
 
-        wald_statistic = t * chain_dot(Cs.T, middle, Cs)
+        wald_statistic = t * (Cs.T @ middle @ Cs)
         df = num_restr
         dist = stats.chi2(df)
 
@@ -1977,10 +1978,10 @@ class VARResults(VARProcess):
         statistic = 0
         u = np.asarray(self.resid)
         acov_list = _compute_acov(u, nlags)
-        cov0_inv = scipy.linalg.inv(acov_list[0])
+        cov0_inv = np.linalg.inv(acov_list[0])
         for t in range(1, nlags+1):
             ct = acov_list[t]
-            to_add = np.trace(chain_dot(ct.T, cov0_inv, ct, cov0_inv))
+            to_add = np.trace(ct.T @ cov0_inv @ ct @ cov0_inv)
             if adjusted:
                 to_add /= (self.nobs - t)
             statistic += to_add
@@ -2012,8 +2013,8 @@ class VARResults(VARProcess):
 
         Returns
         -------
-        fig : matplotlib figure instance
-
+        Figure
+            Figure instance containing the plot.
         """
         if resid:
             acorrs = self.resid_acorr(nlags)
@@ -2059,7 +2060,7 @@ class VARResults(VARProcess):
 
             \hat \Omega = \frac{T}{T - Kp - 1} \hat \Omega_{\mathrm{MLE}}
         """
-        return scipy.linalg.det(self.sigma_u)
+        return np.linalg.det(self.sigma_u)
 
     @cache_readonly
     def info_criteria(self):

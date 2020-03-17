@@ -40,7 +40,7 @@ from scipy.linalg import toeplitz
 from scipy import stats
 from scipy import optimize
 
-from statsmodels.tools.tools import chain_dot, pinv_extended
+from statsmodels.tools.tools import pinv_extended
 from statsmodels.tools.decorators import (cache_readonly,
                                           cache_writable)
 import statsmodels.base.model as base
@@ -55,7 +55,8 @@ from . import _prediction as pred
 
 __docformat__ = 'restructuredtext en'
 
-__all__ = ['GLS', 'WLS', 'OLS', 'GLSAR', 'PredictionResults']
+__all__ = ['GLS', 'WLS', 'OLS', 'GLSAR', 'PredictionResults',
+           'RegressionResultsWrapper']
 
 
 _fit_regularized_doc =\
@@ -138,6 +139,9 @@ _fit_regularized_doc =\
 
         zero_tol : float
             Coefficients below this threshold are treated as zero.
+
+        The cvxopt module is required to estimate model using the square root
+        lasso.
 
         References
         ----------
@@ -432,9 +436,9 @@ class GLS(RegressionModel):
 
     Attributes
     ----------
-    pinv_wexog : array
+    pinv_wexog : ndarray
         `pinv_wexog` is the p x n Moore-Penrose pseudoinverse of `wexog`.
-    cholsimgainv : array
+    cholsimgainv : ndarray
         The transpose of the Cholesky decomposition of the pseudoinverse.
     df_model : float
         p - 1, where p is the number of regressors including the intercept.
@@ -445,20 +449,20 @@ class GLS(RegressionModel):
         The value of the likelihood function of the fitted model.
     nobs : float
         The number of observations n.
-    normalized_cov_params : array
+    normalized_cov_params : ndarray
         p x p array :math:`(X^{T}\Sigma^{-1}X)^{-1}`
     results : RegressionResults instance
         A property that returns the RegressionResults class if fit.
-    sigma : array
+    sigma : ndarray
         `sigma` is the n x n covariance structure of the error terms.
-    wexog : array
+    wexog : ndarray
         Design matrix whitened by `cholsigmainv`
-    wendog : array
+    wendog : ndarray
         Response variable whitened by `cholsigmainv`
 
     See Also
     --------
-    WLS : Fit a linear model using weighted Least Squares.
+    WLS : Fit a linear model using Weighted Least Squares.
     OLS : Fit a linear model using Ordinary Least Squares.
 
     Notes
@@ -646,7 +650,7 @@ class WLS(RegressionModel):
 
     Attributes
     ----------
-    weights : array
+    weights : ndarray
         The stored weights supplied as an argument.
 
     See Also
@@ -1772,6 +1776,9 @@ class RegressionResults(base.LikelihoodModelResults):
     @cache_readonly
     def f_pvalue(self):
         """The p-value of the F-statistic."""
+        # Special case for df_model 0
+        if self.df_model == 0:
+            return np.full_like(self.fvalue, np.nan)
         return stats.f.sf(self.fvalue, self.df_model, self.df_resid)
 
     @cache_readonly
@@ -1852,9 +1859,8 @@ class RegressionResults(base.LikelihoodModelResults):
         Heteroscedasticity robust covariance matrix. See HC2_se.
         """
         # probably could be optimized
-        h = np.diag(chain_dot(self.model.wexog,
-                              self.normalized_cov_params,
-                              self.model.wexog.T))
+        wexog = self.model.wexog
+        h = np.diag(wexog @ self.normalized_cov_params @ wexog.T)
         self.het_scale = self.wresid**2/(1-h)
         cov_HC2 = self._HCCM(self.het_scale)
         return cov_HC2
@@ -1864,8 +1870,8 @@ class RegressionResults(base.LikelihoodModelResults):
         """
         Heteroscedasticity robust covariance matrix. See HC3_se.
         """
-        h = np.diag(chain_dot(
-            self.model.wexog, self.normalized_cov_params, self.model.wexog.T))
+        wexog = self.model.wexog
+        h = np.diag(wexog @ self.normalized_cov_params @ wexog.T)
         self.het_scale = (self.wresid / (1 - h))**2
         cov_HC3 = self._HCCM(self.het_scale)
         return cov_HC3
@@ -2081,7 +2087,7 @@ class RegressionResults(base.LikelihoodModelResults):
             raise ValueError('Only nonrobust, HC, HAC and cluster are ' +
                              'currently connected')
 
-        lm_value = n * chain_dot(s, s_inv, s.T)
+        lm_value = n * (s @ s_inv @ s.T)
         p_value = stats.chi2.sf(lm_value, df_diff)
         return lm_value, p_value, df_diff
 

@@ -18,7 +18,7 @@ from statsmodels.tsa.statespace import (sarimax, varmax, kalman_filter,
 from statsmodels.tsa.statespace.mlemodel import MLEModel, MLEResultsWrapper
 from statsmodels.datasets import nile
 from numpy.testing import (
-    assert_almost_equal, assert_equal, assert_allclose, assert_raises)
+    assert_, assert_almost_equal, assert_equal, assert_allclose, assert_raises)
 from statsmodels.tsa.statespace.tests.results import (
     results_sarimax, results_var_misc)
 
@@ -1040,3 +1040,169 @@ def test_append_extend_apply_invalid():
     assert_raises(ValueError, res1.append, endog2, fit_kwargs={'cov_kwds': {}})
     assert_raises(ValueError, res1.extend, endog2, fit_kwargs={'cov_kwds': {}})
     assert_raises(ValueError, res1.apply, endog2, fit_kwargs={'cov_kwds': {}})
+
+    # Test for exception when given a different frequency
+    wrong_freq = niledata.iloc[20:40]
+    wrong_freq.index = pd.date_range(
+        start=niledata.index[0], periods=len(wrong_freq), freq='MS')
+    message = ('Given `endog` does not have an index that extends the index of'
+               ' the model. Expected index frequency is')
+    with pytest.raises(ValueError, match=message):
+        res1.append(wrong_freq)
+    with pytest.raises(ValueError, match=message):
+        res1.extend(wrong_freq)
+    message = ('Given `exog` does not have an index that extends the index of'
+               ' the model. Expected index frequency is')
+    with pytest.raises(ValueError, match=message):
+        res1.append(endog2, exog=wrong_freq)
+    message = 'The indices for endog and exog are not aligned'
+    with pytest.raises(ValueError, match=message):
+        res1.extend(endog2, exog=wrong_freq)
+
+    # Test for exception when given the same frequency but not right after the
+    # end of model
+    not_cts = niledata.iloc[21:41]
+    message = ('Given `endog` does not have an index that extends the index of'
+               ' the model.$')
+    with pytest.raises(ValueError, match=message):
+        res1.append(not_cts)
+    with pytest.raises(ValueError, match=message):
+        res1.extend(not_cts)
+    message = ('Given `exog` does not have an index that extends the index of'
+               ' the model.$')
+    with pytest.raises(ValueError, match=message):
+        res1.append(endog2, exog=not_cts)
+    message = 'The indices for endog and exog are not aligned'
+    with pytest.raises(ValueError, match=message):
+        res1.extend(endog2, exog=not_cts)
+
+    # # Test for problems with non-date indexes
+    endog3 = pd.Series(niledata.iloc[:20].values)
+    endog4 = pd.Series(niledata.iloc[:40].values)[20:]
+    mod2 = sarimax.SARIMAX(endog3, order=(1, 0, 0), exog=endog3,
+                           concentrate_scale=True)
+    res2 = mod2.smooth([0.2, 0.5])
+
+    # Test for exception when given the same frequency but not right after the
+    # end of model
+    not_cts = pd.Series(niledata[:41].values)[21:]
+    message = ('Given `endog` does not have an index that extends the index of'
+               ' the model.$')
+    with pytest.raises(ValueError, match=message):
+        res2.append(not_cts)
+    with pytest.raises(ValueError, match=message):
+        res2.extend(not_cts)
+    message = ('Given `exog` does not have an index that extends the index of'
+               ' the model.$')
+    with pytest.raises(ValueError, match=message):
+        res2.append(endog4, exog=not_cts)
+    message = 'The indices for endog and exog are not aligned'
+    with pytest.raises(ValueError, match=message):
+        res2.extend(endog4, exog=not_cts)
+
+
+def test_integer_params():
+    # See GH#6335
+    mod = sarimax.SARIMAX([1, 1, 1], order=(1, 0, 0), exog=[2, 2, 2],
+                          concentrate_scale=True)
+    res = mod.filter([1, 0])
+    p = res.predict(end=5, dynamic=True, exog=[3, 3, 4])
+    assert_equal(p.dtype, np.float64)
+
+
+def check_states_index(states, ix, predicted_ix, cols):
+    predicted_cov_ix = pd.MultiIndex.from_product(
+        [predicted_ix, cols]).swaplevel()
+    filtered_cov_ix = pd.MultiIndex.from_product([ix, cols]).swaplevel()
+    smoothed_cov_ix = pd.MultiIndex.from_product([ix, cols]).swaplevel()
+
+    # Predicted
+    assert_(states.predicted.index.equals(predicted_ix))
+    assert_(states.predicted.columns.equals(cols))
+
+    assert_(states.predicted_cov.index.equals(predicted_cov_ix))
+    assert_(states.predicted.columns.equals(cols))
+
+    # Filtered
+    assert_(states.filtered.index.equals(ix))
+    assert_(states.filtered.columns.equals(cols))
+
+    assert_(states.filtered_cov.index.equals(filtered_cov_ix))
+    assert_(states.filtered.columns.equals(cols))
+
+    # Smoothed
+    assert_(states.smoothed.index.equals(ix))
+    assert_(states.smoothed.columns.equals(cols))
+
+    assert_(states.smoothed_cov.index.equals(smoothed_cov_ix))
+    assert_(states.smoothed.columns.equals(cols))
+
+
+def test_states_index_periodindex():
+    nobs = 10
+    ix = pd.period_range(start='2000', periods=nobs, freq='M')
+    endog = pd.Series(np.zeros(nobs), index=ix)
+
+    mod = sarimax.SARIMAX(endog, order=(2, 0, 0))
+    res = mod.smooth([0.5, 0.1, 1.0])
+
+    predicted_ix = pd.period_range(start=ix[0], periods=nobs + 1, freq='M')
+    cols = pd.Index(['state.0', 'state.1'])
+
+    check_states_index(res.states, ix, predicted_ix, cols)
+
+
+def test_states_index_dateindex():
+    nobs = 10
+    ix = pd.date_range(start='2000', periods=nobs, freq='M')
+    endog = pd.Series(np.zeros(nobs), index=ix)
+
+    mod = sarimax.SARIMAX(endog, order=(2, 0, 0))
+    res = mod.smooth([0.5, 0.1, 1.0])
+
+    predicted_ix = pd.date_range(start=ix[0], periods=nobs + 1, freq='M')
+    cols = pd.Index(['state.0', 'state.1'])
+
+    check_states_index(res.states, ix, predicted_ix, cols)
+
+
+def test_states_index_int64index():
+    nobs = 10
+    ix = pd.Int64Index(np.arange(10))
+    endog = pd.Series(np.zeros(nobs), index=ix)
+
+    mod = sarimax.SARIMAX(endog, order=(2, 0, 0))
+    res = mod.smooth([0.5, 0.1, 1.0])
+
+    predicted_ix = pd.Int64Index(np.arange(11))
+    cols = pd.Index(['state.0', 'state.1'])
+
+    check_states_index(res.states, ix, predicted_ix, cols)
+
+
+def test_states_index_rangeindex():
+    nobs = 10
+
+    # Basic range index
+    ix = pd.RangeIndex(10)
+    endog = pd.Series(np.zeros(nobs), index=ix)
+
+    mod = sarimax.SARIMAX(endog, order=(2, 0, 0))
+    res = mod.smooth([0.5, 0.1, 1.0])
+
+    predicted_ix = pd.RangeIndex(11)
+    cols = pd.Index(['state.0', 'state.1'])
+
+    check_states_index(res.states, ix, predicted_ix, cols)
+
+    # More complex range index
+    ix = pd.RangeIndex(2, 32, 3)
+    endog = pd.Series(np.zeros(nobs), index=ix)
+
+    mod = sarimax.SARIMAX(endog, order=(2, 0, 0))
+    res = mod.smooth([0.5, 0.1, 1.0])
+
+    predicted_ix = pd.RangeIndex(2, 35, 3)
+    cols = pd.Index(['state.0', 'state.1'])
+
+    check_states_index(res.states, ix, predicted_ix, cols)

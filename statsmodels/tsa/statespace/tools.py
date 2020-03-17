@@ -4,8 +4,6 @@ Statespace Tools
 Author: Chad Fulton
 License: Simplified-BSD
 """
-import warnings
-
 import numpy as np
 from scipy.linalg import solve_sylvester
 import pandas as pd
@@ -14,7 +12,8 @@ from statsmodels.compat.pandas import Appender
 from statsmodels.tools.data import _is_using_pandas
 from scipy.linalg.blas import find_best_blas_type
 from . import (_initialization, _representation, _kalman_filter,
-               _kalman_smoother, _simulation_smoother, _tools)
+               _kalman_smoother, _simulation_smoother,
+               _cfa_simulation_smoother, _tools)
 
 
 compatibility_mode = False
@@ -49,6 +48,12 @@ prefix_simulation_smoother_map = {
     'd': _simulation_smoother.dSimulationSmoother,
     'c': _simulation_smoother.cSimulationSmoother,
     'z': _simulation_smoother.zSimulationSmoother
+}
+prefix_cfa_simulation_smoother_map = {
+    's': _cfa_simulation_smoother.sCFASimulationSmoother,
+    'd': _cfa_simulation_smoother.dCFASimulationSmoother,
+    'c': _cfa_simulation_smoother.cCFASimulationSmoother,
+    'z': _cfa_simulation_smoother.zCFASimulationSmoother
 }
 prefix_pacf_map = {
     's': _tools._scompute_coefficients_from_multivariate_pacf,
@@ -125,7 +130,7 @@ def companion_matrix(polynomial):
 
     Returns
     -------
-    companion_matrix : array
+    companion_matrix : ndarray
 
     Notes
     -----
@@ -175,7 +180,6 @@ def companion_matrix(polynomial):
     The coefficients from this form are defined to be :math:`c_i = - a_i`, and
     it is the :math:`c_i` coefficients that this function expects to be
     provided.
-
     """
     identity_matrix = False
     if isinstance(polynomial, (int, np.integer)):
@@ -257,7 +261,7 @@ def diff(series, k_diff=1, k_seasonal_diff=None, seasonal_periods=1):
 
     Returns
     -------
-    differenced : array
+    differenced : ndarray
         The differenced array.
     """
     pandas = _is_using_pandas(series, None)
@@ -308,6 +312,22 @@ def concat(series, axis=0, allow_mix=False):
     is_pandas = np.r_[[_is_using_pandas(s, None) for s in series]]
 
     if np.all(is_pandas):
+        if isinstance(series[0], pd.DataFrame):
+            base_columns = series[0].columns
+        else:
+            base_columns = pd.Index([series[0].name])
+        for s in series[1:]:
+            if isinstance(s, pd.DataFrame):
+                s_columns = s.columns
+            else:
+                s_columns = pd.Index([s.name])
+
+            if axis == 0 and not base_columns.equals(s_columns):
+                raise ValueError('Columns must match to concatenate along'
+                                 ' rows.')
+            elif axis == 1 and not series[0].index.equals(s.index):
+                raise ValueError('Index must match to concatenate along'
+                                 ' columns.')
         concatenated = pd.concat(series, axis=axis)
     elif np.all(~is_pandas) or allow_mix:
         concatenated = np.concatenate(series, axis=axis)
@@ -423,14 +443,14 @@ def constrain_stationary_univariate(unconstrained):
 
     Parameters
     ----------
-    unconstrained : array
+    unconstrained : ndarray
         Unconstrained parameters used by the optimizer, to be transformed to
         stationary coefficients of, e.g., an autoregressive or moving average
         component.
 
     Returns
     -------
-    constrained : array
+    constrained : ndarray
         Constrained parameters of, e.g., an autoregressive or moving average
         component, to be transformed to arbitrary parameters used by the
         optimizer.
@@ -460,14 +480,14 @@ def unconstrain_stationary_univariate(constrained):
 
     Parameters
     ----------
-    constrained : array
+    constrained : ndarray
         Constrained parameters of, e.g., an autoregressive or moving average
         component, to be transformed to arbitrary parameters used by the
         optimizer.
 
     Returns
     -------
-    unconstrained : array
+    unconstrained : ndarray
         Unconstrained parameters used by the optimizer, to be transformed to
         stationary coefficients of, e.g., an autoregressive or moving average
         component.
@@ -520,7 +540,6 @@ def _constrain_sv_less_than_one_python(unconstrained, order=None,
     There is a Cython implementation of this function that can be much faster,
     but which requires SciPy 0.14.0 or greater. See
     `constrain_stationary_multivariate` for details.
-
     """
 
     from scipy import linalg
@@ -551,7 +570,7 @@ def _compute_coefficients_from_multivariate_pacf_python(
     partial_autocorrelations : list
         Partial autocorrelation matrices. Should be a list of length `order`,
         where each element is an array sized `k_endog` x `k_endog`.
-    error_variance : array
+    error_variance : ndarray
         The variance / covariance matrix of the error term. Should be sized
         `k_endog` x `k_endog`. This is used as input in the algorithm even if
         is not transformed by it (when `transform_variance` is False). The
@@ -727,7 +746,7 @@ def constrain_stationary_multivariate_python(unconstrained, error_variance,
         element is an array sized `k_endog` x `k_endog`. If an array, should be
         the matrices horizontally concatenated and sized
         `k_endog` x `k_endog * order`.
-    error_variance : array
+    error_variance : ndarray
         The variance / covariance matrix of the error term. Should be sized
         `k_endog` x `k_endog`. This is used as input in the algorithm even if
         is not transformed by it (when `transform_variance` is False). The
@@ -780,7 +799,6 @@ def constrain_stationary_multivariate_python(unconstrained, error_variance,
        "Multivariate Partial Autocorrelations."
        In Proceedings of the Business and Economic Statistics Section, 349-53.
        American Statistical Association
-
     """
 
     use_list = type(unconstrained) == list
@@ -888,7 +906,6 @@ def _unconstrain_sv_less_than_one(constrained, order=None, k_endog=None):
     -----
     Corresponds to the inverse of Lemma 2.2 in Ansley and Kohn (1986). See
     `unconstrain_stationary_multivariate` for more details.
-
     """
     from scipy import linalg
 
@@ -918,6 +935,8 @@ def _compute_multivariate_sample_acovf(endog, maxlag):
     endog : array_like
         Sample data on which to compute sample autocovariances. Shaped
         `nobs` x `k_endog`.
+    maxlag : int
+        Maximum lag to use when computing the sample autocovariances.
 
     Returns
     -------
@@ -940,8 +959,8 @@ def _compute_multivariate_sample_acovf(endog, maxlag):
     References
     ----------
     .. [*] Wei, William. 1990.
-        Time Series Analysis : Univariate and Multivariate Methods.
-       Boston: Pearson.
+       Time Series Analysis : Univariate and Multivariate Methods. Boston:
+       Pearson.
     """
     # Get the (demeaned) data as an array
     endog = np.array(endog)
@@ -976,7 +995,7 @@ def _compute_multivariate_acovf_from_coefficients(
         `order`, where each element is an array sized `k_endog` x `k_endog`. If
         an array, should be the coefficient matrices horizontally concatenated
         and sized `k_endog` x `k_endog * order`.
-    error_variance : array
+    error_variance : ndarray
         The variance / covariance matrix of the error term. Should be sized
         `k_endog` x `k_endog`.
     maxlag : int, optional
@@ -1015,7 +1034,6 @@ def _compute_multivariate_acovf_from_coefficients(
 
     Autocovariances are calculated by solving the associated discrete Lyapunov
     equation of the state space representation of the VAR process.
-
     """
     from scipy import linalg
 
@@ -1088,7 +1106,6 @@ def _compute_multivariate_sample_pacf(endog, maxlag):
     sample_pacf : list
         A list of the first `maxlag` sample partial autocorrelation matrices.
         Each matrix is shaped `k_endog` x `k_endog`.
-
     """
     sample_autocovariances = _compute_multivariate_sample_acovf(endog, maxlag)
 
@@ -1127,7 +1144,6 @@ def _compute_multivariate_pacf_from_autocovariances(autocovariances,
     -----
     Computes sample partial autocorrelations if sample autocovariances are
     given.
-
     """
     from scipy import linalg
 
@@ -1268,7 +1284,7 @@ def _compute_multivariate_pacf_from_coefficients(constrained, error_variance,
         `order`, where each element is an array sized `k_endog` x `k_endog`. If
         an array, should be the coefficient matrices horizontally concatenated
         and sized `k_endog` x `k_endog * order`.
-    error_variance : array
+    error_variance : ndarray
         The variance / covariance matrix of the error term. Should be sized
         `k_endog` x `k_endog`.
     order : int, optional
@@ -1330,14 +1346,14 @@ def unconstrain_stationary_multivariate(constrained, error_variance):
         element is an array sized `k_endog` x `k_endog`. If an array, should be
         the coefficient matrices horizontally concatenated and sized
         `k_endog` x `k_endog * order`.
-    error_variance : array
+    error_variance : ndarray
         The variance / covariance matrix of the error term. Should be sized
         `k_endog` x `k_endog`. This is used as input in the algorithm even if
         is not transformed by it (when `transform_variance` is False).
 
     Returns
     -------
-    unconstrained : array
+    unconstrained : ndarray
         Unconstrained parameters used by the optimizer, to be transformed to
         stationary coefficients of, e.g., an autoregressive or moving average
         component. Will match the type of the passed `constrained`
@@ -1353,7 +1369,6 @@ def unconstrain_stationary_multivariate(constrained, error_variance):
        "A Note on Reparameterizing a Vector Autoregressive Moving Average Model
        to Enforce Stationarity."
        Journal of Statistical Computation and Simulation 24 (2): 99-106.
-
     """
     use_list = type(constrained) == list
     if not use_list:
@@ -1518,7 +1533,6 @@ def reorder_missing_matrix(matrix, missing, reorder_rows=False,
     -------
     reordered_matrix : array_like
         The reordered matrix.
-
     """
     if prefix is None:
         prefix = find_best_blas_type((matrix,))[0]
@@ -1554,7 +1568,6 @@ def reorder_missing_vector(vector, missing, inplace=False, prefix=None):
     -------
     reordered_vector : array_like
         The reordered vector.
-
     """
     if prefix is None:
         prefix = find_best_blas_type((vector,))[0]
@@ -1603,7 +1616,6 @@ def copy_missing_matrix(A, B, missing, missing_rows=False, missing_cols=False,
     -------
     copied_matrix : array_like
         The matrix B with the non-missing submatrix of A copied onto it.
-
     """
     if prefix is None:
         prefix = find_best_blas_type((A, B))[0]
@@ -1649,7 +1661,6 @@ def copy_missing_vector(a, b, missing, inplace=False, prefix=None):
     -------
     copied_vector : array_like
         The vector b with the non-missing subvector of b copied onto it.
-
     """
     if prefix is None:
         prefix = find_best_blas_type((a, b))[0]
@@ -1706,7 +1717,6 @@ def copy_index_matrix(A, B, index, index_rows=False, index_cols=False,
     -------
     copied_matrix : array_like
         The matrix B with the non-index submatrix of A copied onto it.
-
     """
     if prefix is None:
         prefix = find_best_blas_type((A, B))[0]
@@ -1752,7 +1762,6 @@ def copy_index_vector(a, b, index, inplace=False, prefix=None):
     -------
     copied_vector : array_like
         The vector b with the non-index subvector of b copied onto it.
-
     """
     if prefix is None:
         prefix = find_best_blas_type((a, b))[0]
@@ -1794,11 +1803,8 @@ def prepare_exog(exog):
 
 def prepare_trend_spec(trend):
     # Trend
-    if trend is None or trend in ['n', 'nc']:
-        polynomial_trend = np.ones((0))
-        if trend == 'nc':
-            warnings.warn("Argument option trend='nc' is deprecated. Please"
-                          " use option trend='n'.", DeprecationWarning)
+    if trend is None or trend == 'n':
+        polynomial_trend = np.ones(0)
     elif trend == 'c':
         polynomial_trend = np.r_[1]
     elif trend == 't':

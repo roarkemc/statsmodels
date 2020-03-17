@@ -191,7 +191,6 @@ class SingleIndexModel(KernelReg):
     that X and b interact linearly, but ``g(X * b)`` is unknown.
     In the parametric binary choice models the user usually assumes
     some distribution of g() such as normal or logistic.
-
     """
     def __init__(self, endog, exog, var_type):
         self.var_type = var_type
@@ -201,6 +200,9 @@ class SingleIndexModel(KernelReg):
         self.exog = _adjust_shape(exog, self.K)
         self.nobs = np.shape(self.exog)[0]
         self.data_type = self.var_type
+        self.ckertype = 'gaussian'
+        self.okertype = 'wangryzin'
+        self.ukertype = 'aitchisonaitken'
         self.func = self._est_loc_linear
 
         self.b, self.bw = self._est_b_bw()
@@ -319,6 +321,9 @@ class SemiLinear(KernelReg):
         self.nobs = np.shape(self.exog)[0]
         self.var_type = var_type
         self.data_type = self.var_type
+        self.ckertype = 'gaussian'
+        self.okertype = 'wangryzin'
+        self.ukertype = 'aitchisonaitken'
         self.func = self._est_loc_linear
 
         self.b, self.bw = self._est_b_bw()

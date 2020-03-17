@@ -28,7 +28,8 @@ kernel_func = dict(wangryzin=kernels.wang_ryzin,
                    gaussian_cdf=kernels.gaussian_cdf,
                    aitchisonaitken_cdf=kernels.aitchison_aitken_cdf,
                    wangryzin_cdf=kernels.wang_ryzin_cdf,
-                   d_gaussian=kernels.d_gaussian)
+                   d_gaussian=kernels.d_gaussian,
+                   tricube=kernels.tricube)
 
 
 def _compute_min_std_IQR(data):
@@ -50,7 +51,6 @@ def _compute_subset(class_type, data, bw, co, do, n_cvars, ix_ord,
     Notes
     -----
     Needs to be outside the class in order for joblib to be able to pickle it.
-
     """
     if randomize:
         np.random.shuffle(data)
@@ -381,7 +381,6 @@ class EstimatorSettings(object):
     --------
     >>> settings = EstimatorSettings(randomize=True, n_jobs=3)
     >>> k_dens = KDEMultivariate(data, var_type, defaults=settings)
-
     """
     def __init__(self, efficient=False, randomize=False, n_res=25, n_sub=50,
                  return_median=True, return_only_bw=False, n_jobs=-1):

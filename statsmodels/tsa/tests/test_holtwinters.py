@@ -2,8 +2,6 @@
 Author: Terence L van Zyl
 Modified: Kevin Sheppard
 """
-from statsmodels.compat.platform import PLATFORM_OSX
-
 import os
 import warnings
 
@@ -323,12 +321,10 @@ class TestHoltWinters(object):
             447.2614880558126]
         assert_allclose(fit.forecast(10), desired, atol=1e-4)
 
-
-
     def test_hw_seasonal(self):
-        fit1 = ExponentialSmoothing(self.aust, seasonal_periods=4,
-                                    trend='additive',
-                                    seasonal='additive').fit(use_boxcox=True)
+        mod = ExponentialSmoothing(self.aust, seasonal_periods=4,
+                                   trend='additive', seasonal='additive')
+        fit1 = mod.fit(use_boxcox=True)
         fit2 = ExponentialSmoothing(self.aust, seasonal_periods=4, trend='add',
                                     seasonal='mul').fit(use_boxcox=True)
         assert_almost_equal(fit1.forecast(8),
@@ -337,13 +333,12 @@ class TestHoltWinters(object):
         assert_almost_equal(fit2.forecast(8),
                             [60.97, 36.99, 46.71, 51.48, 64.46, 39.02, 49.29, 54.32],
                             2)
-        fit5 = ExponentialSmoothing(self.aust, seasonal_periods=4,
-                                    trend='mul', seasonal='add'
-                                    ).fit(use_boxcox='log')
-        fit6 = ExponentialSmoothing(self.aust, seasonal_periods=4,
-                                    trend='multiplicative',
-                                    seasonal='multiplicative'
-                                    ).fit(use_boxcox='log')
+        ExponentialSmoothing(self.aust, seasonal_periods=4, trend='mul',
+                             seasonal='add').fit(use_boxcox='log')
+        ExponentialSmoothing(self.aust,
+                             seasonal_periods=4,
+                             trend='multiplicative',
+                             seasonal='multiplicative').fit(use_boxcox='log')
         # Skip since estimator is unstable
         # assert_almost_equal(fit5.forecast(1), [60.60], 2)
         # assert_almost_equal(fit6.forecast(1), [61.47], 2)
@@ -426,8 +421,8 @@ def test_basin_hopping(reset_randomstate):
     mod = ExponentialSmoothing(housing_data, trend='add')
     res = mod.fit()
     res2 = mod.fit(use_basinhopping=True)
-    # GH 5642
-    tol = 1e-6 if PLATFORM_OSX else 0.0
+    # Basin hopping occasionally prduces a slightly larger objective
+    tol = 1e-5
     assert res2.sse <= res.sse + tol
 
 
@@ -522,3 +517,17 @@ def test_integer_array(reset_randomstate):
     y = y.astype(np.long)
     res = ExponentialSmoothing(y,trend='add').fit()
     assert res.params['smoothing_level'] != 0.0
+
+
+def test_damping_slope_zero():
+    endog = np.arange(10)
+    mod = ExponentialSmoothing(endog, trend='add', damped=True)
+    res1 = mod.fit(smoothing_level=1, smoothing_slope=0.0, damping_slope=1e-20)
+    pred1 = res1.predict(start=0)
+    assert_allclose(pred1, np.r_[0., np.arange(9)], atol=1e-10)
+
+    res2 = mod.fit(smoothing_level=1, smoothing_slope=0.0, damping_slope=0)
+    pred2 = res2.predict(start=0)
+    assert_allclose(pred2, np.r_[0., np.arange(9)], atol=1e-10)
+
+    assert_allclose(pred1, pred2, atol=1e-10)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-This will generate an API file for formula. in dir/statsmodels/formula/api.py
+This will generate an API file for formula in dir/statsmodels/formula/api.py
 
 It first builds statsmodels in place, then generates the file. It's to be run
 by developers to add files to the formula API without having to maintain this
@@ -11,8 +11,8 @@ usage
 generate_formula_api /home/skipper/statsmodels/statsmodels/
 """
 
-import sys
 import os
+import sys
 
 
 def iter_subclasses(cls, _seen=None, template_classes=[]):

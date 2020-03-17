@@ -61,6 +61,26 @@ def _handle_args(names, defaults, *args, **kwargs):
     return tuple(output_args) + (kwargs,)
 
 
+def _check_index(desired_index, dta, title='data'):
+    given_index = None
+    if isinstance(dta, (pd.Series, pd.DataFrame)):
+        given_index = dta.index
+    if given_index is not None and not desired_index.equals(given_index):
+        desired_freq = getattr(desired_index, 'freq', None)
+        given_freq = getattr(given_index, 'freq', None)
+        if ((desired_freq is not None or given_freq is not None) and
+                desired_freq != given_freq):
+            raise ValueError('Given %s does not have an index'
+                             ' that extends the index of the'
+                             ' model. Expected index frequency is'
+                             ' "%s", but got "%s".'
+                             % (title, desired_freq, given_freq))
+        else:
+            raise ValueError('Given %s does not have an index'
+                             ' that extends the index of the'
+                             ' model.' % title)
+
+
 class MLEModel(tsbase.TimeSeriesModel):
     r"""
     State space model for maximum likelihood estimation
@@ -161,7 +181,6 @@ class MLEModel(tsbase.TimeSeriesModel):
         **kwargs
             Additional keyword arguments to pass to the state space class
             constructor.
-
         """
         # (Now self.endog is C-ordered and in long format (nobs x k_endog). To
         # get F-ordered and in wide format just need to transpose)
@@ -176,32 +195,40 @@ class MLEModel(tsbase.TimeSeriesModel):
         # Other dimensions, now that `ssm` is available
         self.k_endog = self.ssm.k_endog
 
-    def _get_index_with_initial_state(self):
+    def _get_index_with_final_state(self):
         # The index we inherit from `TimeSeriesModel` will only cover the
         # data sample itself, but we will also need an index value for the
-        # initial state which is the previous time step to the first datapoint.
+        # final state which is the next time step to the last datapoint.
         # This method figures out an appropriate value for the three types of
         # supported indexes: date-based, Int64Index, or RangeIndex
         if self._index_dates:
-            # value = self._index.shift(-1)[0]
             if isinstance(self._index, pd.DatetimeIndex):
                 index = pd.date_range(
-                    end=self._index[-1], periods=len(self._index) + 1,
+                    start=self._index[0], periods=len(self._index) + 1,
                     freq=self._index.freq)
             elif isinstance(self._index, pd.PeriodIndex):
                 index = pd.period_range(
-                    end=self._index[-1], periods=len(self._index) + 1,
+                    start=self._index[0], periods=len(self._index) + 1,
                     freq=self._index.freq)
             else:
                 raise NotImplementedError
+        elif isinstance(self._index, pd.RangeIndex):
+            # COMPAT: pd.RangeIndex does not have start, stop, step prior to
+            #         pandas 0.25
+            try:
+                start = self._index.start
+                stop = self._index.stop
+                step = self._index.step
+            except AttributeError:
+                start = self._index._start
+                stop = self._index._stop
+                step = self._index._step
+            index = pd.RangeIndex(start, stop + step, step)
         elif isinstance(self._index, pd.Int64Index):
             # The only valid Int64Index is a full, incrementing index, so this
             # is general
-            value = self._index[0] - 1
-            index = pd.Int64Index([value] + self._index.tolist())
-        elif isinstance(self._index, pd.RangeIndex):
-            index = pd.RangeIndex(self._index.start - self._index.step,
-                                  self._index.end, self._index.step)
+            value = self._index[-1] + 1
+            index = pd.Int64Index(self._index.tolist() + [value])
         else:
             raise NotImplementedError
         return index
@@ -230,6 +257,13 @@ class MLEModel(tsbase.TimeSeriesModel):
         # for subclasses to make _get_init_kwds useful.
         use_kwargs = self._get_init_kwds()
         use_kwargs.update(kwargs)
+
+        # Check for `exog`
+        if getattr(self, 'k_exog', 0) > 0 and kwargs.get('exog', None) is None:
+            raise ValueError('Cloning a model with an exogenous component'
+                             ' requires specifying a new exogenous array using'
+                             ' the `exog` argument.')
+
         return self.__class__(endog, **use_kwargs)
 
     def set_filter_method(self, filter_method=None, **kwargs):
@@ -685,7 +719,6 @@ class MLEModel(tsbase.TimeSeriesModel):
         --------
         >>> mod = sm.tsa.SARIMAX(endog, order=(1, 0, 1))
         >>> res = mod.fit_constrained({'ar.L1': 0.5})
-
         """
         with self.fix_params(constraints):
             res = self.fit(start_params, **fit_kwds)
@@ -1059,7 +1092,6 @@ class MLEModel(tsbase.TimeSeriesModel):
         Harvey, Andrew C. 1990.
         Forecasting, Structural Time Series Models and the Kalman Filter.
         Cambridge University Press.
-
         """
         params = np.array(params, ndmin=1)
 
@@ -1142,7 +1174,6 @@ class MLEModel(tsbase.TimeSeriesModel):
         Berndt, Ernst R., Bronwyn Hall, Robert Hall, and Jerry Hausman. 1974.
         Estimation and Inference in Nonlinear Structural Models.
         NBER Chapters. National Bureau of Economic Research, Inc.
-
         """
         # We cannot use complex-step differentiation with non-transformed
         # parameters
@@ -1206,7 +1237,6 @@ class MLEModel(tsbase.TimeSeriesModel):
         Harvey, Andrew C. 1990.
         Forecasting, Structural Time Series Models and the Kalman Filter.
         Cambridge University Press.
-
         """
         params = np.array(params, ndmin=1)
         n = len(params)
@@ -1216,6 +1246,8 @@ class MLEModel(tsbase.TimeSeriesModel):
                     complex_step=approx_complex_step)
         if approx_complex_step:
             kwargs['inversion_method'] = INVERT_UNIVARIATE | SOLVE_LU
+        if 'transformed' in kwargs:
+            del kwargs['transformed']
         res = self.ssm.filter(complex_step=approx_complex_step, **kwargs)
 
         # Get forecasts error partials
@@ -1267,7 +1299,7 @@ class MLEModel(tsbase.TimeSeriesModel):
 
         Returns
         -------
-        score : array
+        score : ndarray
             Score, evaluated at `params`.
 
         Notes
@@ -1340,7 +1372,7 @@ class MLEModel(tsbase.TimeSeriesModel):
 
         Returns
         -------
-        score : array
+        score : ndarray
             Score per observation, evaluated at `params`.
 
         Notes
@@ -1401,7 +1433,7 @@ class MLEModel(tsbase.TimeSeriesModel):
 
         Returns
         -------
-        hessian : array
+        hessian : ndarray
             Hessian matrix evaluated at `params`
 
         Notes
@@ -1527,7 +1559,7 @@ class MLEModel(tsbase.TimeSeriesModel):
     @property
     def state_names(self):
         """
-        (list of str) List of human readable names for uonbserved states.
+        (list of str) List of human readable names for unobserved states.
         """
         if hasattr(self, '_state_names'):
             return self._state_names
@@ -1546,7 +1578,7 @@ class MLEModel(tsbase.TimeSeriesModel):
 
         Returns
         -------
-        jacobian : array
+        jacobian : ndarray
             Jacobian matrix of the transformation, evaluated at `unconstrained`
 
         Notes
@@ -1614,6 +1646,10 @@ class MLEModel(tsbase.TimeSeriesModel):
                       return_jacobian=False):
         params = np.array(params, ndmin=1)
 
+        # Never want integer dtype, so convert to floats
+        if np.issubdtype(params.dtype, np.integer):
+            params = params.astype(np.float64)
+
         if not includes_fixed and self._has_fixed_params:
             k_params = len(self.param_names)
             new_params = np.zeros(k_params, dtype=params.dtype) * np.nan
@@ -1665,20 +1701,123 @@ class MLEModel(tsbase.TimeSeriesModel):
         return self.handle_params(params=params, transformed=transformed,
                                   includes_fixed=includes_fixed)
 
+    def _validate_out_of_sample_exog(self, exog, out_of_sample):
+        """
+        Validate given `exog` as satisfactory for out-of-sample operations
+
+        Parameters
+        ----------
+        exog : array_like or None
+            New observations of exogenous regressors, if applicable.
+        out_of_sample : int
+            Number of new observations required.
+
+        Returns
+        -------
+        exog : array or None
+            A numpy array of shape (out_of_sample, k_exog) if the model
+            contains an `exog` component, or None if it doesn't.
+        """
+        if out_of_sample and self.k_exog > 0:
+            if exog is None:
+                raise ValueError('Out-of-sample operations in a model'
+                                 ' with a regression component require'
+                                 ' additional exogenous values via the'
+                                 ' `exog` argument.')
+            exog = np.array(exog)
+            required_exog_shape = (out_of_sample, self.k_exog)
+            try:
+                exog = exog.reshape(required_exog_shape)
+            except ValueError:
+                raise ValueError('Provided exogenous values are not of the'
+                                 ' appropriate shape. Required %s, got %s.'
+                                 % (str(required_exog_shape),
+                                    str(exog.shape)))
+        elif self.k_exog > 0:
+            exog = None
+            warnings.warn('Exogenous array provided, but additional data'
+                          ' is not required. `exog` argument ignored.',
+                          ValueWarning)
+
+        return exog
+
+    def _get_extension_time_varying_matrices(
+            self, params, exog, out_of_sample, extend_kwargs=None,
+            transformed=True, includes_fixed=False, **kwargs):
+        """
+        Get updated time-varying state space system matrices
+
+        Parameters
+        ----------
+        params : array_like
+            Array of parameters used to construct the time-varying system
+            matrices.
+        exog : array_like or None
+            New observations of exogenous regressors, if applicable.
+        out_of_sample : int
+            Number of new observations required.
+        extend_kwargs : dict, optional
+            Dictionary of keyword arguments to pass to the state space model
+            constructor. For example, for an SARIMAX state space model, this
+            could be used to pass the `concentrate_scale=True` keyword
+            argument. Any arguments that are not explicitly set in this
+            dictionary will be copied from the current model instance.
+        transformed : bool, optional
+            Whether or not `start_params` is already transformed. Default is
+            True.
+        includes_fixed : bool, optional
+            If parameters were previously fixed with the `fix_params` method,
+            this argument describes whether or not `start_params` also includes
+            the fixed parameters, in addition to the free parameters. Default
+            is False.
+        """
+        # Get the appropriate exog for the extended sample
+        exog = self._validate_out_of_sample_exog(exog, out_of_sample)
+
+        # Create extended model
+        if extend_kwargs is None:
+            extend_kwargs = {}
+
+        # Handle trend offset for extended model
+        if getattr(self, 'k_trend', 0) > 0 and hasattr(self, 'trend_offset'):
+            extend_kwargs.setdefault(
+                'trend_offset', self.trend_offset + self.nobs)
+
+        mod_extend = self.clone(
+            endog=np.zeros((out_of_sample, self.k_endog)), exog=exog,
+            **extend_kwargs)
+        mod_extend.update(params, transformed=transformed,
+                          includes_fixed=includes_fixed)
+
+        # Retrieve the extensions to the time-varying system matrices and
+        # put them in kwargs
+        for name in self.ssm.shapes.keys():
+            if name == 'obs' or name in kwargs:
+                continue
+            if getattr(self.ssm, name).shape[-1] > 1:
+                mat = getattr(mod_extend.ssm, name)
+                kwargs[name] = mat[..., -out_of_sample:]
+
+        return kwargs
+
     def simulate(self, params, nsimulations, measurement_shocks=None,
-                 state_shocks=None, initial_state=None, includes_fixed=False):
+                 state_shocks=None, initial_state=None, anchor=None,
+                 repetitions=None, exog=None, extend_model=None,
+                 extend_kwargs=None, transformed=True, includes_fixed=False,
+                 **kwargs):
         r"""
         Simulate a new time series following the state space model
 
         Parameters
         ----------
         params : array_like
-            Array of model parameters.
+            Array of parameters to use in constructing the state space
+            representation to use when simulating.
         nsimulations : int
             The number of observations to simulate. If the model is
             time-invariant this can be any number. If the model is
             time-varying, then this number must be less than or equal to the
-            number
+            number of observations.
         measurement_shocks : array_like, optional
             If specified, these are the shocks to the measurement equation,
             :math:`\varepsilon_t`. If unspecified, these are automatically
@@ -1692,33 +1831,149 @@ class MLEModel(tsbase.TimeSeriesModel):
             must be shaped `nsimulations` x `k_posdef` where `k_posdef` is the
             same as in the state space model.
         initial_state : array_like, optional
-            If specified, this is the state vector at time zero, which should
-            be shaped (`k_states` x 1), where `k_states` is the same as in the
-            state space model. If unspecified, but the model has been
-            initialized, then that initialization is used. If unspecified and
-            the model has not been initialized, then a vector of zeros is used.
-            Note that this is not included in the returned `simulated_states`
-            array.
+            If specified, this is the initial state vector to use in
+            simulation, which should be shaped (`k_states` x 1), where
+            `k_states` is the same as in the state space model. If unspecified,
+            but the model has been initialized, then that initialization is
+            used. This must be specified if `anchor` is anything other than
+            "start" or 0 (or else you can use the `simulate` method on a
+            results object rather than on the model object).
+        anchor : int, str, or datetime, optional
+            First period for simulation. The simulation will be conditional on
+            all existing datapoints prior to the `anchor`.  Type depends on the
+            index of the given `endog` in the model. Two special cases are the
+            strings 'start' and 'end'. `start` refers to beginning the
+            simulation at the first period of the sample, and `end` refers to
+            beginning the simulation at the first period after the sample.
+            Integer values can run from 0 to `nobs`, or can be negative to
+            apply negative indexing. Finally, if a date/time index was provided
+            to the model, then this argument can be a date string to parse or a
+            datetime type. Default is 'start'.
+        repetitions : int, optional
+            Number of simulated paths to generate. Default is 1 simulated path.
+        exog : array_like, optional
+            New observations of exogenous regressors, if applicable.
+        transformed : bool, optional
+            Whether or not `params` is already transformed. Default is
+            True.
+        includes_fixed : bool, optional
+            If parameters were previously fixed with the `fix_params` method,
+            this argument describes whether or not `params` also includes
+            the fixed parameters, in addition to the free parameters. Default
+            is False.
 
         Returns
         -------
-        simulated_obs : array
-            An (nsimulations x k_endog) array of simulated observations.
+        simulated_obs : ndarray
+            An array of simulated observations. If `repetitions=None`, then it
+            will be shaped (nsimulations x k_endog) or (nsimulations,) if
+            `k_endog=1`. Otherwise it will be shaped
+            (nsimulations x k_endog x repetitions). If the model was given
+            Pandas input then the output will be a Pandas object. If
+            `k_endog > 1` and `repetitions` is not None, then the output will
+            be a Pandas DataFrame that has a MultiIndex for the columns, with
+            the first level containing the names of the `endog` variables and
+            the second level containing the repetition number.
         """
-        self.update(params, includes_fixed=includes_fixed)
+        # Make sure the model class has the current parameters
+        self.update(params, transformed=transformed,
+                    includes_fixed=includes_fixed)
 
-        simulated_obs, simulated_states = self.ssm.simulate(
-            nsimulations, measurement_shocks, state_shocks, initial_state)
+        # Get the starting location
+        if anchor is None or anchor == 'start':
+            iloc = 0
+        elif anchor == 'end':
+            iloc = self.nobs
+        else:
+            iloc, _, _ = self._get_index_loc(anchor)
+            if isinstance(iloc, slice):
+                iloc = iloc.start
 
-        # Simulated obs is (nobs x k_endog); do not want to squeeze in
-        # case of nsimulations = 1
-        if simulated_obs.shape[1] == 1:
-            simulated_obs = simulated_obs[:, 0]
-        return simulated_obs
+        if iloc < 0:
+            iloc = self.nobs + iloc
+        if iloc > self.nobs:
+            raise ValueError('Cannot anchor simulation outside of the sample.')
+
+        if iloc > 0 and initial_state is None:
+            raise ValueError('If `anchor` is after the start of the sample,'
+                             ' must provide a value for `initial_state`.')
+
+        # Get updated time-varying system matrices in **kwargs, if necessary
+        out_of_sample = max(iloc + nsimulations - self.nobs, 0)
+        if extend_model is None:
+            extend_model = self.exog is not None or not self.ssm.time_invariant
+        if out_of_sample and extend_model:
+            kwargs = self._get_extension_time_varying_matrices(
+                params, exog, out_of_sample, extend_kwargs,
+                transformed=transformed, includes_fixed=includes_fixed,
+                **kwargs)
+
+        # Standardize the dimensions of the initial state
+        if initial_state is not None:
+            initial_state = np.array(initial_state)
+            if initial_state.ndim < 2:
+                initial_state = np.atleast_2d(initial_state).T
+
+        # Construct a model that represents the simulation period
+        end = min(self.nobs, iloc + nsimulations)
+        nextend = iloc + nsimulations - end
+        sim_model = self.ssm.extend(np.empty((nextend, self.k_endog)),
+                                    start=iloc, end=end, **kwargs)
+
+        # Simulate the data
+        _repetitions = 1 if repetitions is None else repetitions
+        sim = np.zeros((nsimulations, self.k_endog, _repetitions))
+
+        for i in range(_repetitions):
+            initial_state_variates = None
+            if initial_state is not None:
+                if initial_state.shape[1] == 1:
+                    initial_state_variates = initial_state[:, 0]
+                else:
+                    initial_state_variates = initial_state[:, i]
+
+            # TODO: allow specifying measurement / state shocks for each
+            # repetition?
+
+            out, _ = sim_model.simulate(
+                nsimulations, measurement_shocks, state_shocks,
+                initial_state_variates)
+
+            sim[:, :, i] = out
+
+        # Wrap data / squeeze where appropriate
+        use_pandas = isinstance(self.data, PandasData)
+        index = None
+        if use_pandas:
+            _, _, _, index = self._get_prediction_index(
+                iloc, iloc + nsimulations - 1)
+        # If `repetitions` isn't set, we squeeze the last dimension(s)
+        if repetitions is None:
+            if self.k_endog == 1:
+                sim = sim[:, 0, 0]
+                if use_pandas:
+                    sim = pd.Series(sim, index=index, name=self.endog_names)
+            else:
+                sim = sim[:, :, 0]
+                if use_pandas:
+                    sim = pd.DataFrame(sim, index=index,
+                                       columns=self.endog_names)
+        elif use_pandas:
+            shape = sim.shape
+            endog_names = self.endog_names
+            if not isinstance(endog_names, list):
+                endog_names = [endog_names]
+            columns = pd.MultiIndex.from_product([endog_names,
+                                                  np.arange(shape[2])])
+            sim = pd.DataFrame(sim.reshape(shape[0], shape[1] * shape[2]),
+                               index=index, columns=columns)
+
+        return sim
 
     def impulse_responses(self, params, steps=1, impulse=0,
-                          orthogonalized=False, cumulative=False,
-                          includes_fixed=False, **kwargs):
+                          orthogonalized=False, cumulative=False, anchor=None,
+                          exog=None, extend_model=None, extend_kwargs=None,
+                          transformed=True, includes_fixed=False, **kwargs):
         """
         Impulse response function
 
@@ -1728,8 +1983,9 @@ class MLEModel(tsbase.TimeSeriesModel):
             Array of model parameters.
         steps : int, optional
             The number of steps for which impulse responses are calculated.
-            Default is 1. Note that the initial impulse is not counted as a
-            step, so if `steps=1`, the output will have 2 entries.
+            Default is 1. Note that for time-invariant models, the initial
+            impulse is not counted as a step, so if `steps=1`, the output will
+            have 2 entries.
         impulse : int or array_like
             If an integer, the state innovation to pulse; must be between 0
             and `k_posdef-1`. Alternatively, a custom impulse vector may be
@@ -1741,30 +1997,140 @@ class MLEModel(tsbase.TimeSeriesModel):
         cumulative : bool, optional
             Whether or not to return cumulative impulse responses. Default is
             False.
+        anchor : int, str, or datetime, optional
+            Time point within the sample for the state innovation impulse. Type
+            depends on the index of the given `endog` in the model. Two special
+            cases are the strings 'start' and 'end', which refer to setting the
+            impulse at the first and last points of the sample, respectively.
+            Integer values can run from 0 to `nobs - 1`, or can be negative to
+            apply negative indexing. Finally, if a date/time index was provided
+            to the model, then this argument can be a date string to parse or a
+            datetime type. Default is 'start'.
+        exog : array_like, optional
+            New observations of exogenous regressors for our-of-sample periods,
+            if applicable.
+        transformed : bool, optional
+            Whether or not `params` is already transformed. Default is
+            True.
+        includes_fixed : bool, optional
+            If parameters were previously fixed with the `fix_params` method,
+            this argument describes whether or not `params` also includes
+            the fixed parameters, in addition to the free parameters. Default
+            is False.
         **kwargs
-            If the model is time-varying and `steps` is greater than the number
-            of observations, any of the state space representation matrices
-            that are time-varying must have updated values provided for the
-            out-of-sample steps.
-            For example, if `design` is a time-varying component, `nobs` is 10,
-            and `steps` is 15, a (`k_endog` x `k_states` x 5) matrix must be
-            provided with the new design matrix values.
+            If the model has time-varying design or transition matrices and the
+            combination of `anchor` and `steps` implies creating impulse
+            responses for the out-of-sample period, then these matrices must
+            have updated values provided for the out-of-sample steps. For
+            example, if `design` is a time-varying component, `nobs` is 10,
+            `anchor=1`, and `steps` is 15, a (`k_endog` x `k_states` x 7)
+            matrix must be provided with the new design matrix values.
 
         Returns
         -------
-        impulse_responses : array
+        impulse_responses : ndarray
             Responses for each endogenous variable due to the impulse
-            given by the `impulse` argument. A (steps + 1 x k_endog) array.
+            given by the `impulse` argument. For a time-invariant model, the
+            impulse responses are given for `steps + 1` elements (this gives
+            the "initial impulse" followed by `steps` responses for the
+            important cases of VAR and SARIMAX models), while for time-varying
+            models the impulse responses are only given for `steps` elements
+            (to avoid having to unexpectedly provide updated time-varying
+            matrices).
 
         Notes
         -----
         Intercepts in the measurement and state equation are ignored when
         calculating impulse responses.
 
+        TODO: add an option to allow changing the ordering for the
+              orthogonalized option. Will require permuting matrices when
+              constructing the extended model.
         """
-        self.update(params, includes_fixed=includes_fixed)
-        irfs = self.ssm.impulse_responses(
-            steps, impulse, orthogonalized, cumulative, **kwargs)
+        # Make sure the model class has the current parameters
+        self.update(params, transformed=transformed,
+                    includes_fixed=includes_fixed)
+
+        # For time-invariant models, add an additional `step`. This is the
+        # default for time-invariant models based on the expected behavior for
+        # ARIMA and VAR models: we want to record the initial impulse and also
+        # `steps` values of the responses afterwards.
+        # Note: we don't modify `steps` itself, because
+        # `KalmanFilter.impulse_responses` also adds an additional step in this
+        # case (this is so that there isn't different behavior when calling
+        # this method versus that method). We just need to also keep track of
+        # this here because we need to generate the correct extended model.
+        additional_steps = 0
+        if (self.ssm._design.shape[2] == 1 and
+                self.ssm._transition.shape[2] == 1 and
+                self.ssm._selection.shape[2] == 1):
+            additional_steps = 1
+
+        # Get the starting location
+        if anchor is None or anchor == 'start':
+            iloc = 0
+        elif anchor == 'end':
+            iloc = self.nobs - 1
+        else:
+            iloc, _, _ = self._get_index_loc(anchor)
+            if isinstance(iloc, slice):
+                iloc = iloc.start
+
+        if iloc < 0:
+            iloc = self.nobs + iloc
+        if iloc >= self.nobs:
+            raise ValueError('Cannot anchor impulse responses outside of the'
+                             ' sample.')
+
+        time_invariant = (
+            self.ssm._design.shape[2] == self.ssm._obs_cov.shape[2] ==
+            self.ssm._transition.shape[2] == self.ssm._selection.shape[2] ==
+            self.ssm._state_cov.shape[2] == 1)
+
+        # Get updated time-varying system matrices in **kwargs, if necessary
+        # (Note: KalmanFilter adds 1 to steps to account for the first impulse)
+        out_of_sample = max(
+            iloc + (steps + additional_steps + 1) - self.nobs, 0)
+        if extend_model is None:
+            extend_model = self.exog is not None and not time_invariant
+        if out_of_sample and extend_model:
+            kwargs = self._get_extension_time_varying_matrices(
+                params, exog, out_of_sample, extend_kwargs,
+                transformed=transformed, includes_fixed=includes_fixed,
+                **kwargs)
+
+        # Special handling for matrix terms that are time-varying but
+        # irrelevant for impulse response functions. Must be set since
+        # ssm.extend() requires that we pass new matrices for these, but they
+        # are ignored for IRF purposes.
+        end = min(self.nobs, iloc + steps + additional_steps)
+        nextend = iloc + (steps + additional_steps + 1) - end
+        if ('obs_intercept' not in kwargs and
+                self.ssm._obs_intercept.shape[1] > 1):
+            kwargs['obs_intercept'] = np.zeros((self.k_endog, nextend))
+        if ('state_intercept' not in kwargs and
+                self.ssm._state_intercept.shape[1] > 1):
+            kwargs['state_intercept'] = np.zeros((self.k_states, nextend))
+        if 'obs_cov' not in kwargs and self.ssm._obs_cov.shape[2] > 1:
+            kwargs['obs_cov'] = np.zeros((self.k_endog, self.k_endog, nextend))
+        # Special handling for matrix terms that are time-varying but
+        # only the value at the anchor matters for IRF purposes.
+        if 'state_cov' not in kwargs and self.ssm._state_cov.shape[2] > 1:
+            tmp = np.zeros((self.ssm.k_posdef, self.ssm.k_posdef, nextend))
+            tmp[:] = self['state_cov', :, :, iloc:iloc + 1]
+            kwargs['state_cov'] = tmp
+        if 'selection' not in kwargs and self.ssm._selection.shape[2] > 1:
+            tmp = np.zeros((self.k_states, self.ssm.k_posdef, nextend))
+            tmp[:] = self['selection', :, :, iloc:iloc + 1]
+            kwargs['selection'] = tmp
+
+        # Construct a model that represents the simulation period
+        sim_model = self.ssm.extend(np.empty((nextend, self.k_endog)),
+                                    start=iloc, end=end, **kwargs)
+
+        # Compute the impulse responses
+        irfs = sim_model.impulse_responses(
+            steps, impulse, orthogonalized, cumulative)
 
         # IRF is (nobs x k_endog); do not want to squeeze in case of steps = 1
         if irfs.shape[1] == 1:
@@ -1788,7 +2154,7 @@ class MLEResults(tsbase.TimeSeriesModelResults):
     ----------
     model : MLEModel instance
         The fitted model instance
-    params : array
+    params : ndarray
         Fitted parameters
     filter_results : KalmanFilter instance
         The underlying state space model and Kalman filter output
@@ -1801,7 +2167,7 @@ class MLEResults(tsbase.TimeSeriesModelResults):
         The underlying state space model and Kalman filter output
     nobs : float
         The number of observations used to fit the model.
-    params : array
+    params : ndarray
         The parameters of the model.
     scale : float
         This is currently set to 1.0 unless the model uses concentrated
@@ -1920,15 +2286,18 @@ class MLEResults(tsbase.TimeSeriesModelResults):
             setattr(self, name, getattr(self.filter_results, name, None))
 
         # Remove too-short results when memory conservation was used
-        if self.filter_results.memory_no_forecast:
+        if self.filter_results.memory_no_forecast_mean:
             self.forecasts = None
             self.forecasts_error = None
+        if self.filter_results.memory_no_forecast_cov:
             self.forecasts_error_cov = None
-        if self.filter_results.memory_no_predicted:
+        if self.filter_results.memory_no_predicted_mean:
             self.predicted_state = None
+        if self.filter_results.memory_no_predicted_cov:
             self.predicted_state_cov = None
-        if self.filter_results.memory_no_filtered:
+        if self.filter_results.memory_no_filtered_mean:
             self.filtered_state = None
+        if self.filter_results.memory_no_filtered_cov:
             self.filtered_state_cov = None
         if self.filter_results.memory_no_gain:
             pass
@@ -1951,13 +2320,19 @@ class MLEResults(tsbase.TimeSeriesModelResults):
         # Note: a complication here is that we also include the initial values
         # here, so that we need an extended index in the Pandas case
         if (self.predicted_state is None or
-                self.filter_results.memory_no_predicted):
+                self.filter_results.memory_no_predicted_mean):
             self._states.predicted = None
-            self._states.predicted_cov = None
         elif use_pandas:
-            extended_index = self.model._get_index_with_initial_state()
+            extended_index = self.model._get_index_with_final_state()
             self._states.predicted = pd.DataFrame(
                 self.predicted_state.T, index=extended_index, columns=columns)
+        else:
+            self._states.predicted = self.predicted_state.T
+        if (self.predicted_state_cov is None or
+                self.filter_results.memory_no_predicted_cov):
+            self._states.predicted_cov = None
+        elif use_pandas:
+            extended_index = self.model._get_index_with_final_state()
             tmp = np.transpose(self.predicted_state_cov, (2, 0, 1))
             self._states.predicted_cov = pd.DataFrame(
                 np.reshape(tmp, (tmp.shape[0] * tmp.shape[1], tmp.shape[2])),
@@ -1965,42 +2340,48 @@ class MLEResults(tsbase.TimeSeriesModelResults):
                     [extended_index, columns]).swaplevel(),
                 columns=columns)
         else:
-            self._states.predicted = self.predicted_state.T
             self._states.predicted_cov = np.transpose(
                 self.predicted_state_cov, (2, 0, 1))
 
         # Filtered states
         if (self.filtered_state is None or
-                self.filter_results.memory_no_filtered):
+                self.filter_results.memory_no_filtered_mean):
             self._states.filtered = None
-            self._states.filtered_cov = None
         elif use_pandas:
             self._states.filtered = pd.DataFrame(
                 self.filtered_state.T, index=index, columns=columns)
+        else:
+            self._states.filtered = self.filtered_state.T
+        if (self.filtered_state_cov is None or
+                self.filter_results.memory_no_filtered_cov):
+            self._states.filtered_cov = None
+        elif use_pandas:
             tmp = np.transpose(self.filtered_state_cov, (2, 0, 1))
             self._states.filtered_cov = pd.DataFrame(
                 np.reshape(tmp, (tmp.shape[0] * tmp.shape[1], tmp.shape[2])),
                 index=pd.MultiIndex.from_product([index, columns]).swaplevel(),
                 columns=columns)
         else:
-            self._states.filtered = self.filtered_state.T
             self._states.filtered_cov = np.transpose(
                 self.filtered_state_cov, (2, 0, 1))
 
         # Smoothed states
         if self.smoothed_state is None:
             self._states.smoothed = None
-            self._states.smoothed_cov = None
         elif use_pandas:
             self._states.smoothed = pd.DataFrame(
                 self.smoothed_state.T, index=index, columns=columns)
+        else:
+            self._states.smoothed = self.smoothed_state.T
+        if self.smoothed_state_cov is None:
+            self._states.smoothed_cov = None
+        elif use_pandas:
             tmp = np.transpose(self.smoothed_state_cov, (2, 0, 1))
             self._states.smoothed_cov = pd.DataFrame(
                 np.reshape(tmp, (tmp.shape[0] * tmp.shape[1], tmp.shape[2])),
                 index=pd.MultiIndex.from_product([index, columns]).swaplevel(),
                 columns=columns)
         else:
-            self._states.smoothed = self.smoothed_state.T
             self._states.smoothed_cov = np.transpose(
                 self.smoothed_state_cov, (2, 0, 1))
 
@@ -2090,7 +2471,11 @@ class MLEResults(tsbase.TimeSeriesModelResults):
             res.cov_type = kwargs['custom_cov_type']
             res.cov_params_default = kwargs['custom_cov_params']
             res.cov_kwds['description'] = kwargs['custom_description']
-            res._rank = np.linalg.matrix_rank(res.cov_params_default)
+            if len(self.fixed_params) > 0:
+                mask = np.ix_(self._free_params_index, self._free_params_index)
+            else:
+                mask = np.s_[...]
+            res._rank = np.linalg.matrix_rank(res.cov_params_default[mask])
         elif cov_type == 'none':
             res.cov_params_default = np.zeros((k_params, k_params)) * np.nan
             res._rank = np.nan
@@ -2535,7 +2920,7 @@ class MLEResults(tsbase.TimeSeriesModelResults):
         See Also
         --------
         statsmodels.stats.stattools.jarque_bera
-
+            The Jarque-Bera test of normality.
         """
         if method is None:
             method = 'jarquebera'
@@ -2584,7 +2969,7 @@ class MLEResults(tsbase.TimeSeriesModelResults):
 
         Returns
         -------
-        output : array
+        output : ndarray
             An array with `(test_statistic, pvalue)` for each endogenous
             variable. The array is then sized `(k_endog, 2)`. If the method is
             called as `het = res.test_heteroskedasticity()`, then `het[0]` is
@@ -2721,7 +3106,7 @@ class MLEResults(tsbase.TimeSeriesModelResults):
 
     def test_serial_correlation(self, method, lags=None):
         """
-        Ljung-box test for no serial correlation of standardized residuals
+        Ljung-Box test for no serial correlation of standardized residuals
 
         Null hypothesis is no serial correlation.
 
@@ -2741,7 +3126,7 @@ class MLEResults(tsbase.TimeSeriesModelResults):
 
         Returns
         -------
-        output : array
+        output : ndarray
             An array with `(test_statistic, pvalue)` for each endogenous
             variable and each lag. The array is then sized
             `(k_endog, 2, lags)`. If the method is called as
@@ -2760,7 +3145,7 @@ class MLEResults(tsbase.TimeSeriesModelResults):
         See Also
         --------
         statsmodels.stats.diagnostic.acorr_ljungbox
-
+            Ljung-Box test for serial correlation.
         """
         if method is None:
             method = 'ljungbox'
@@ -2786,7 +3171,8 @@ class MLEResults(tsbase.TimeSeriesModelResults):
             for i in range(self.model.k_endog):
                 results = acorr_ljungbox(
                     self.filter_results.standardized_forecasts_error[i][d:],
-                    lags=lags, boxpierce=(method == 'boxpierce'))
+                    lags=lags, boxpierce=(method == 'boxpierce'),
+                    return_df=False)
                 if method == 'ljungbox':
                     output.append(results[0:2])
                 else:
@@ -2799,7 +3185,8 @@ class MLEResults(tsbase.TimeSeriesModelResults):
         return output
 
     def get_prediction(self, start=None, end=None, dynamic=False,
-                       index=None, **kwargs):
+                       index=None, exog=None, extend_model=None,
+                       extend_kwargs=None, **kwargs):
         """
         In-sample prediction and out-of-sample forecasting
 
@@ -2830,12 +3217,12 @@ class MLEResults(tsbase.TimeSeriesModelResults):
 
         Returns
         -------
-        forecast : array
+        forecast : ndarray
             Array of out of in-sample predictions and / or out-of-sample
             forecasts. An (npredict x k_endog) array.
         """
         if start is None:
-            start = self.model._index[0]
+            start = 0
 
         # Handle start, end, dynamic
         start, end, out_of_sample, prediction_index = (
@@ -2844,6 +3231,20 @@ class MLEResults(tsbase.TimeSeriesModelResults):
         # Handle `dynamic`
         if isinstance(dynamic, (bytes, str)):
             dynamic, _, _ = self.model._get_index_loc(dynamic)
+
+        # If we have out-of-sample forecasting and `exog` or in general any
+        # kind of time-varying state space model, then we need to create an
+        # extended model to get updated state space system matrices
+        if extend_model is None:
+            extend_model = (self.model.exog is not None or
+                            not self.filter_results.time_invariant)
+        if out_of_sample and extend_model:
+            kwargs = self.model._get_extension_time_varying_matrices(
+                self.params, exog, out_of_sample, extend_kwargs,
+                transformed=True, includes_fixed=True, **kwargs)
+
+        # Make sure the model class has the current parameters
+        self.model.update(self.params, transformed=True, includes_fixed=True)
 
         # Perform the prediction
         # This is a (k_endog x npredictions) array; do not want to squeeze in
@@ -2872,7 +3273,7 @@ class MLEResults(tsbase.TimeSeriesModelResults):
 
         Returns
         -------
-        forecast : array
+        forecast : ndarray
             Array of out of sample forecasts. A (steps x k_endog) array.
         """
         if isinstance(steps, int):
@@ -2912,7 +3313,7 @@ class MLEResults(tsbase.TimeSeriesModelResults):
 
         Returns
         -------
-        forecast : array
+        forecast : array_like
             Array of out of in-sample predictions and / or out-of-sample
             forecasts. An (npredict x k_endog) array.
         """
@@ -2937,7 +3338,7 @@ class MLEResults(tsbase.TimeSeriesModelResults):
 
         Returns
         -------
-        forecast : array
+        forecast : ndarray
             Array of out of sample forecasts. A (steps x k_endog) array.
         """
         if isinstance(steps, int):
@@ -2947,7 +3348,9 @@ class MLEResults(tsbase.TimeSeriesModelResults):
         return self.predict(start=self.nobs, end=end, **kwargs)
 
     def simulate(self, nsimulations, measurement_shocks=None,
-                 state_shocks=None, initial_state=None):
+                 state_shocks=None, initial_state=None, anchor=None,
+                 repetitions=None, exog=None, extend_model=None,
+                 extend_kwargs=None, **kwargs):
         r"""
         Simulate a new time series following the state space model
 
@@ -2971,24 +3374,75 @@ class MLEResults(tsbase.TimeSeriesModelResults):
             must be shaped `nsimulations` x `k_posdef` where `k_posdef` is the
             same as in the state space model.
         initial_state : array_like, optional
-            If specified, this is the state vector at time zero, which should
-            be shaped (`k_states` x 1), where `k_states` is the same as in the
-            state space model. If unspecified, but the model has been
-            initialized, then that initialization is used. If unspecified and
-            the model has not been initialized, then a vector of zeros is used.
-            Note that this is not included in the returned `simulated_states`
-            array.
+            If specified, this is the initial state vector to use in
+            simulation, which should be shaped (`k_states` x 1), where
+            `k_states` is the same as in the state space model. If unspecified,
+            but the model has been initialized, then that initialization is
+            used. This must be specified if `anchor` is anything other than
+            "start" or 0.
+        anchor : int, str, or datetime, optional
+            Starting point from which to begin the simulations; type depends on
+            the index of the given `endog` model. Two special cases are the
+            strings 'start' and 'end', which refer to starting at the beginning
+            and end of the sample, respectively. If a date/time index was
+            provided to the model, then this argument can be a date string to
+            parse or a datetime type. Otherwise, an integer index should be
+            given. Default is 'start'.
+        repetitions : int, optional
+            Number of simulated paths to generate. Default is 1 simulated path.
+        exog : array_like, optional
+            New observations of exogenous regressors, if applicable.
 
         Returns
         -------
-        simulated_obs : array
-            An (nsimulations x k_endog) array of simulated observations.
+        simulated_obs : ndarray
+            An array of simulated observations. If `repetitions=None`, then it
+            will be shaped (nsimulations x k_endog) or (nsimulations,) if
+            `k_endog=1`. Otherwise it will be shaped
+            (nsimulations x k_endog x repetitions). If the model was given
+            Pandas input then the output will be a Pandas object. If
+            `k_endog > 1` and `repetitions` is not None, then the output will
+            be a Pandas DataFrame that has a MultiIndex for the columns, with
+            the first level containing the names of the `endog` variables and
+            the second level containing the repetition number.
         """
+        # Get the starting location
+        if anchor is None or anchor == 'start':
+            iloc = 0
+        elif anchor == 'end':
+            iloc = self.nobs
+        else:
+            iloc, _, _ = self.model._get_index_loc(anchor)
+            if isinstance(iloc, slice):
+                iloc = iloc.start
+
+        if iloc < 0:
+            iloc = self.nobs + iloc
+        if iloc > self.nobs:
+            raise ValueError('Cannot anchor simulation outside of the sample.')
+
+        # Setup the initial state
+        if initial_state is None:
+            initial_state_moments = (
+                self.predicted_state[:, iloc],
+                self.predicted_state_cov[:, :, iloc])
+
+            _repetitions = 1 if repetitions is None else repetitions
+
+            initial_state = np.random.multivariate_normal(
+                *initial_state_moments, size=_repetitions).T
+
         scale = self.scale if self.filter_results.filter_concentrated else None
         with self.model.ssm.fixed_scale(scale):
-            sim = self.model.simulate(self.params, nsimulations,
-                                      measurement_shocks, state_shocks,
-                                      initial_state)
+            sim = self.model.simulate(
+                self.params, nsimulations,
+                measurement_shocks=measurement_shocks,
+                state_shocks=state_shocks, initial_state=initial_state,
+                anchor=anchor, repetitions=repetitions, exog=exog,
+                transformed=True, includes_fixed=True,
+                extend_model=extend_model, extend_kwargs=extend_kwargs,
+                **kwargs)
+
         return sim
 
     def impulse_responses(self, steps=1, impulse=0, orthogonalized=False,
@@ -3000,8 +3454,9 @@ class MLEResults(tsbase.TimeSeriesModelResults):
         ----------
         steps : int, optional
             The number of steps for which impulse responses are calculated.
-            Default is 1. Note that the initial impulse is not counted as a
-            step, so if `steps=1`, the output will have 2 entries.
+            Default is 1. Note that for time-invariant models, the initial
+            impulse is not counted as a step, so if `steps=1`, the output will
+            have 2 entries.
         impulse : int or array_like
             If an integer, the state innovation to pulse; must be between 0
             and `k_posdef-1`. Alternatively, a custom impulse vector may be
@@ -3013,26 +3468,42 @@ class MLEResults(tsbase.TimeSeriesModelResults):
         cumulative : bool, optional
             Whether or not to return cumulative impulse responses. Default is
             False.
+        anchor : int, str, or datetime, optional
+            Time point within the sample for the state innovation impulse. Type
+            depends on the index of the given `endog` in the model. Two special
+            cases are the strings 'start' and 'end', which refer to setting the
+            impulse at the first and last points of the sample, respectively.
+            Integer values can run from 0 to `nobs - 1`, or can be negative to
+            apply negative indexing. Finally, if a date/time index was provided
+            to the model, then this argument can be a date string to parse or a
+            datetime type. Default is 'start'.
+        exog : array_like, optional
+            New observations of exogenous regressors, if applicable.
         **kwargs
-            If the model is time-varying and `steps` is greater than the number
-            of observations, any of the state space representation matrices
-            that are time-varying must have updated values provided for the
-            out-of-sample steps.
-            For example, if `design` is a time-varying component, `nobs` is 10,
-            and `steps` is 15, a (`k_endog` x `k_states` x 5) matrix must be
-            provided with the new design matrix values.
+            If the model has time-varying design or transition matrices and the
+            combination of `anchor` and `steps` implies creating impulse
+            responses for the out-of-sample period, then these matrices must
+            have updated values provided for the out-of-sample steps. For
+            example, if `design` is a time-varying component, `nobs` is 10,
+            `anchor=1`, and `steps` is 15, a (`k_endog` x `k_states` x 7)
+            matrix must be provided with the new design matrix values.
 
         Returns
         -------
-        impulse_responses : array
+        impulse_responses : ndarray
             Responses for each endogenous variable due to the impulse
-            given by the `impulse` argument. A (steps + 1 x k_endog) array.
+            given by the `impulse` argument. For a time-invariant model, the
+            impulse responses are given for `steps + 1` elements (this gives
+            the "initial impulse" followed by `steps` responses for the
+            important cases of VAR and SARIMAX models), while for time-varying
+            models the impulse responses are only given for `steps` elements
+            (to avoid having to unexpectedly provide updated time-varying
+            matrices).
 
         Notes
         -----
         Intercepts in the measurement and state equation are ignored when
         calculating impulse responses.
-
         """
         scale = self.scale if self.filter_results.filter_concentrated else None
         with self.model.ssm.fixed_scale(scale):
@@ -3073,9 +3544,16 @@ class MLEResults(tsbase.TimeSeriesModelResults):
                                        % self.cov_kwds['description'])}
 
             if self.smoother_results is not None:
-                res = mod.smooth(self.params, **fit_kwargs)
+                func = mod.smooth
             else:
-                res = mod.filter(self.params, **fit_kwargs)
+                func = mod.filter
+
+            if self._has_fixed_params:
+                with mod.fix_params(self._fixed_params):
+                    fit_kwargs.setdefault('includes_fixed', True)
+                    res = func(self.params, **fit_kwargs)
+            else:
+                res = func(self.params, **fit_kwargs)
 
         return res
 
@@ -3164,10 +3642,37 @@ class MLEResults(tsbase.TimeSeriesModelResults):
         statsmodels.tsa.statespace.mlemodel.MLEResults.extend
         statsmodels.tsa.statespace.mlemodel.MLEResults.apply
         """
-        new_endog = concat([self.model.data.orig_endog, endog], axis=0)
+        start = self.nobs
+        end = self.nobs + len(endog) - 1
+        _, _, _, append_ix = self.model._get_prediction_index(start, end)
+
+        # Check the index of the new data
+        if isinstance(self.model.data, PandasData):
+            _check_index(append_ix, endog, '`endog`')
+
+        # Concatenate the new data to original data
+        new_endog = concat([self.model.data.orig_endog, endog], axis=0,
+                           allow_mix=True)
+
+        # Create a continuous index for the combined data
+        if isinstance(self.model.data, PandasData):
+            start = 0
+            end = len(new_endog) - 1
+            _, _, _, new_index = self.model._get_prediction_index(start, end)
+            # Standardize `endog` to have the right index and columns
+            columns = self.model.endog_names
+            if not isinstance(columns, list):
+                columns = [columns]
+            new_endog = pd.DataFrame(new_endog, index=new_index,
+                                     columns=columns)
+
+        # Handle `exog`
         if exog is not None:
             _, exog = prepare_exog(exog)
-            new_exog = concat([self.model.data.orig_exog, exog], axis=0)
+            _check_index(append_ix, exog, '`exog`')
+
+            new_exog = concat([self.model.data.orig_exog, exog], axis=0,
+                              allow_mix=True)
         else:
             new_exog = None
 
@@ -3251,6 +3756,18 @@ class MLEResults(tsbase.TimeSeriesModelResults):
         statsmodels.tsa.statespace.mlemodel.MLEResults.append
         statsmodels.tsa.statespace.mlemodel.MLEResults.apply
         """
+        start = self.nobs
+        end = self.nobs + len(endog) - 1
+        _, _, _, extend_ix = self.model._get_prediction_index(start, end)
+
+        if isinstance(self.model.data, PandasData):
+            _check_index(extend_ix, endog, '`endog`')
+
+            # Standardize `endog` to have the right index and columns
+            columns = self.model.endog_names
+            if not isinstance(columns, list):
+                columns = [columns]
+            endog = pd.DataFrame(endog, index=extend_ix, columns=columns)
         # Extend the current fit result to additional data
         mod = self.model.clone(endog, exog=exog, **kwargs)
         mod.ssm.initialization = Initialization(
@@ -3355,7 +3872,7 @@ class MLEResults(tsbase.TimeSeriesModelResults):
             should be created. Default is 0.
         lags : int, optional
             Number of lags to include in the correlogram. Default is 10.
-        fig : Matplotlib Figure instance, optional
+        fig : Figure, optional
             If given, subplots are created in this figure instead of in a new
             figure. Note that the 2x2 grid will be created in the provided
             figure using `fig.add_subplot()`.
@@ -3588,7 +4105,6 @@ class MLEResultsWrapper(wrap.ResultsWrapper):
                                    _attrs)
     _methods = {
         'forecast': 'dates',
-        'simulate': 'ynames',
         'impulse_responses': 'ynames'
     }
     _wrap_methods = wrap.union_dicts(
@@ -3609,11 +4125,10 @@ class PredictionResults(pred.PredictionResults):
 
     Attributes
     ----------
-
     """
     def __init__(self, model, prediction_results, row_labels=None):
         if model.model.k_endog == 1:
-            endog = pd.Series(prediction_results.endog[:, 0],
+            endog = pd.Series(prediction_results.endog[0],
                               name=model.model.endog_names)
         else:
             endog = pd.DataFrame(prediction_results.endog.T,
@@ -3623,13 +4138,22 @@ class PredictionResults(pred.PredictionResults):
         self.prediction_results = prediction_results
 
         # Get required values
-        predicted_mean = self.prediction_results.forecasts
+        k_endog, nobs = prediction_results.endog.shape
+        if not prediction_results.results.memory_no_forecast_mean:
+            predicted_mean = self.prediction_results.forecasts
+        else:
+            predicted_mean = np.zeros((k_endog, nobs)) * np.nan
+
         if predicted_mean.shape[0] == 1:
             predicted_mean = predicted_mean[0, :]
         else:
             predicted_mean = predicted_mean.transpose()
 
-        var_pred_mean = self.prediction_results.forecasts_error_cov
+        if not prediction_results.results.memory_no_forecast_cov:
+            var_pred_mean = self.prediction_results.forecasts_error_cov
+        else:
+            var_pred_mean = np.zeros((k_endog, k_endog, nobs)) * np.nan
+
         if var_pred_mean.shape[0] == 1:
             var_pred_mean = var_pred_mean[0, 0, :]
         else:
@@ -3664,8 +4188,8 @@ class PredictionResults(pred.PredictionResults):
             ynames = self.model.data.ynames
             if not type(ynames) == list:
                 ynames = [ynames]
-            names = (['lower %s' % name for name in ynames] +
-                     ['upper %s' % name for name in ynames])
+            names = (['lower {0}'.format(name) for name in ynames] +
+                     ['upper {0}'.format(name) for name in ynames])
             conf_int.columns = names
 
         return conf_int

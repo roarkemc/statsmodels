@@ -22,7 +22,7 @@ from statsmodels.tools.decorators import cache_readonly
 from statsmodels.tools.numdiff import approx_hess_cs, approx_fprime_cs
 from statsmodels.tools.sm_exceptions import SpecificationWarning
 from statsmodels.tools.validation import array_like, string_like
-from statsmodels.tsa.ar_model import AR
+from statsmodels.tsa.ar_model import AutoReg, ar_select_order
 from statsmodels.tsa.arima_process import arma2ma
 from statsmodels.tsa.base import tsa_model
 from statsmodels.tsa.kalmanf import KalmanFilter
@@ -144,7 +144,7 @@ _predict = """
         %(extra_section)s
 """
 
-_predict_returns = """predict : array
+_predict_returns = """predict : ndarray
             The predicted values.
 
 """
@@ -210,7 +210,7 @@ _plot_predict = ("""
                       """ + '\n'.join(_predict.split('\n')[2:])) % {
     "params": "",
     "extra_params": _plot_extras,
-    "returns": """fig : matplotlib.Figure
+    "returns": """fig : Figure
             The plotted Figure instance""",
     "extra_section": ('\n' + _arima_plot_predict_example +
                       '\n' + _results_notes)
@@ -221,7 +221,7 @@ _arima_plot_predict = ("""
                       """ + '\n'.join(_predict.split('\n')[2:])) % {
     "params": "",
     "extra_params": _plot_extras,
-    "returns": """fig : matplotlib.Figure
+    "returns": """fig : Figure
             The plotted Figure instance""",
     "extra_section": ('\n' + _arima_plot_predict_example + '\n' +
                       '\n'.join(_results_notes.split('\n')[:3])
@@ -473,7 +473,7 @@ class ARMA(tsa_model.TimeSeriesModel):
 
         Returns
         -------
-        start_params : array
+        start_params : ndarray
             A first guess at the starting parameters.
 
         Notes
@@ -509,13 +509,14 @@ class ARMA(tsa_model.TimeSeriesModel):
                     maxlag = int(round(12 * (nobs / 100.) ** (1 / 4.)))
                     if maxlag >= nobs:
                         maxlag = nobs - 1
-                    armod = AR(endog).fit(ic='bic', trend='nc', maxlag=maxlag)
+                    mod = ar_select_order(endog, maxlag, trend='n').model
+                    armod = mod.fit()
                 else:
                     if start_ar_lags >= nobs:
                         start_ar_lags = nobs - 1
-                    armod = AR(endog).fit(trend='nc', maxlag=start_ar_lags)
+                    armod = AutoReg(endog, start_ar_lags, trend='n').fit()
                 arcoefs_tmp = armod.params
-                p_tmp = armod.k_ar
+                p_tmp = len(armod.ar_lags)
                 # it's possible in small samples that optimal lag-order
                 # does not leave enough obs. No consistent way to fix.
                 if p_tmp + q >= len(endog):
@@ -543,7 +544,7 @@ class ARMA(tsa_model.TimeSeriesModel):
             else:
                 ar_coeffs = yule_walker(endog, order=q)[0]
                 ar = np.r_[[1], -ar_coeffs.squeeze()]
-                start_params[k + p:k + p + q] = arma2ma(ar, [1], nobs=q+1)[1:]
+                start_params[k + p:k + p + q] = arma2ma(ar, [1], lags=q+1)[1:]
         if q == 0 and p != 0:
             arcoefs = yule_walker(endog, order=p)[0]
             start_params[k:k + p] = arcoefs
@@ -924,7 +925,6 @@ matches the number of out-of-sample forecasts ({1})'
         unknown state is zero, and that the initial variance is
         P = dot(inv(identity(m**2)-kron(T,T)),dot(R,R.T).ravel('F')).reshape(r,
         r, order = 'F')
-
         """
         trend = string_like(trend, 'trend', options=('nc', 'c'))
         if self._fit_params is not None:
@@ -1193,7 +1193,6 @@ class ARIMA(ARMA):
         unknown state is zero, and that the initial variance is
         P = dot(inv(identity(m**2)-kron(T,T)),dot(R,R.T).ravel('F')).reshape(r,
         r, order = 'F')
-
         """
         mlefit = super(ARIMA, self).fit(start_params, trend,
                                         method, transparams, solver,
@@ -1322,9 +1321,9 @@ class ARMAResults(tsa_model.TimeSeriesModelResults):
     ----------
     model : ARMA instance
         The fitted model instance
-    params : array
+    params : ndarray
         Fitted parameters
-    normalized_cov_params : array, optional
+    normalized_cov_params : ndarray, optional
         The normalized variance covariance matrix
     scale : float, optional
         Optional argument to scale the variance covariance matrix.
@@ -1336,9 +1335,9 @@ class ARMAResults(tsa_model.TimeSeriesModelResults):
         :math:`-2*llf+2* df_model`
         where `df_model` includes all AR parameters, MA parameters, constant
         terms parameters on constant terms and the variance.
-    arparams : array
+    arparams : ndarray
         The parameters associated with the AR coefficients in the model.
-    arroots : array
+    arroots : ndarray
         The roots of the AR coefficients are the solution to
         (1 - arparams[0]*z - arparams[1]*z**2 -...- arparams[p-1]*z**k_ar) = 0
         Stability requires that the roots in modulus lie outside the unit
@@ -1349,14 +1348,14 @@ class ARMAResults(tsa_model.TimeSeriesModelResults):
         Where if the model is fit using conditional sum of squares, the
         number of observations `nobs` does not include the `p` pre-sample
         observations.
-    bse : array
+    bse : ndarray
         The standard errors of the parameters. These are computed using the
         numerical Hessian.
-    df_model : array
+    df_model : ndarray
         The model degrees of freedom = `k_exog` + `k_trend` + `k_ar` + `k_ma`
-    df_resid : array
+    df_resid : ndarray
         The residual degrees of freedom = `nobs` - `df_model`
-    fittedvalues : array
+    fittedvalues : ndarray
         The predicted values of the model.
     hqic : float
         Hannan-Quinn Information Criterion
@@ -1374,9 +1373,9 @@ class ARMAResults(tsa_model.TimeSeriesModelResults):
         This is 0 for no constant or 1 if a constant is included.
     llf : float
         The value of the log-likelihood function evaluated at `params`.
-    maparams : array
+    maparams : ndarray
         The value of the moving average coefficients.
-    maroots : array
+    maroots : ndarray
         The roots of the MA coefficients are the solution to
         (1 + maparams[0]*z + maparams[1]*z**2 + ... + maparams[q-1]*z**q) = 0
         Stability requires that the roots in modules lie outside the unit
@@ -1391,14 +1390,14 @@ class ARMAResults(tsa_model.TimeSeriesModelResults):
     n_totobs : float
         The total number of observations for `endog`. This includes all
         observations, even pre-sample values if the model is fit using `css`.
-    params : array
+    params : ndarray
         The parameters of the model. The order of variables is the trend
         coefficients and the `k_exog` exogenous coefficients, then the
         `k_ar` AR coefficients, and finally the `k_ma` MA coefficients.
-    pvalues : array
+    pvalues : ndarray
         The p-values associated with the t-values of the coefficients. Note
         that the coefficients are assumed to have a Student's T distribution.
-    resid : array
+    resid : ndarray
         The model residuals. If the model is fit using 'mle' then the
         residuals are created via the Kalman Filter. If the model is fit
         using 'css' then the residuals are obtained via `scipy.signal.lfilter`
@@ -1558,7 +1557,7 @@ class ARMAResults(tsa_model.TimeSeriesModelResults):
         steps : int
             The number of out of sample forecasts from the end of the
             sample.
-        exog : array
+        exog : ndarray
             If the model is an ARMAX, you must provide out of sample
             values for the exogenous variables. This should not include
             the constant. The number of observation in exog must match the
@@ -1568,11 +1567,11 @@ class ARMAResults(tsa_model.TimeSeriesModelResults):
 
         Returns
         -------
-        forecast : array
+        forecast : ndarray
             Array of out of sample forecasts
-        stderr : array
+        stderr : ndarray
             Array of the standard error of the forecasts.
-        conf_int : array
+        conf_int : ndarray
             2d array of the confidence interval for the forecast
         """
         if exog is not None:
@@ -1733,7 +1732,6 @@ class ARMAResults(tsa_model.TimeSeriesModelResults):
         --------
         statsmodels.iolib.summary2.Summary : class to hold summary
             results
-
         """
         from pandas import DataFrame
         # get sample TODO: make better sample machinery for estimation
@@ -1892,11 +1890,11 @@ class ARIMAResults(ARMAResults):
 
         Returns
         -------
-        forecast : array
+        forecast : ndarray
             Array of out of sample forecasts
-        stderr : array
+        stderr : ndarray
             Array of the standard error of the forecasts.
-        conf_int : array
+        conf_int : ndarray
             2d array of the confidence interval for the forecast
 
         Notes

@@ -56,7 +56,7 @@ class ProcessCovariance(object):
 
     def jac(self, time, sc, sm):
         """
-        The Jacobian of the covariance respect to the parameters.
+        The Jacobian of the covariance with respect to the parameters.
 
         See get_cov for parameters.
 
@@ -190,7 +190,7 @@ class ProcessMLE(base.LikelihoodModel):
     Fit a Gaussian mean/variance regression model.
 
     This class fits a one-dimensional Gaussian process model with
-    parameterized mean and covariance structures to grouped data.  For
+    parametrized mean and covariance structures to grouped data.  For
     each group, there is an independent realization of a latent
     Gaussian process indexed by an observed real-valued time
     variable..  The data consist of the Gaussian process observed at a

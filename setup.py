@@ -5,14 +5,19 @@ python setup.py develop
 pytest --cov=statsmodels statsmodels
 coverage html
 """
+from collections import defaultdict
+from distutils.command.clean import clean
 import fnmatch
 import os
-import sys
+from os.path import abspath, join as pjoin, relpath, split
 import shutil
-from collections import defaultdict
-from os.path import relpath, abspath, split, join as pjoin
+import sys
 
 import pkg_resources
+from setuptools import Extension, find_packages, setup
+from setuptools.dist import Distribution
+
+import versioneer
 
 try:
     # SM_FORCE_C is a testing shim to force setup to use C source files
@@ -28,17 +33,13 @@ except ImportError:
     from setuptools.command.build_ext import build_ext
 
     HAS_CYTHON = False
-from setuptools import Extension, find_packages, setup
-from distutils.command.clean import clean
-from setuptools.dist import Distribution
 
-import versioneer
 
 ###############################################################################
 # Key Values that Change Each Release
 ###############################################################################
-SETUP_REQUIREMENTS = {'numpy': '1.14',  # released January 2018
-                      'scipy': '1.0',  # released October 2017
+SETUP_REQUIREMENTS = {'numpy': '1.15',  # released June 2018
+                      'scipy': '1.1',  # released May 2018
                       }
 
 REQ_NOT_MET_MSG = """
@@ -98,9 +99,9 @@ PROJECT_URLS = {
 CLASSIFIERS = ['Development Status :: 4 - Beta',
                'Environment :: Console',
                'Programming Language :: Cython',
-               'Programming Language :: Python :: 3.5',
                'Programming Language :: Python :: 3.6',
                'Programming Language :: Python :: 3.7',
+               'Programming Language :: Python :: 3.8',
                'Operating System :: OS Independent',
                'Intended Audience :: End Users/Desktop',
                'Intended Audience :: Developers',
@@ -172,6 +173,7 @@ statespace_exts = [
     'statsmodels/tsa/statespace/_smoothers/_univariate.pyx.in',
     'statsmodels/tsa/statespace/_smoothers/_univariate_diffuse.pyx.in',
     'statsmodels/tsa/statespace/_simulation_smoother.pyx.in',
+    'statsmodels/tsa/statespace/_cfa_simulation_smoother.pyx.in',
     'statsmodels/tsa/statespace/_tools.pyx.in',
 ]
 
@@ -344,7 +346,8 @@ setup(name=DISTNAME,
       setup_requires=SETUP_REQUIRES,
       install_requires=INSTALL_REQUIRES,
       extras_require=EXTRAS_REQUIRE,
-      zip_safe=False
+      zip_safe=False,
+      python_requires=">=3.6",
       )
 
 # Clean-up copied files

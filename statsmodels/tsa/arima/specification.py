@@ -68,15 +68,15 @@ class SARIMAXSpecification(object):
     seasonal_periods : int
         Number of periods in a season. May not be used in combination with
         `seasonal_order`.
-    enforce_stationarity : boolean, optional
+    enforce_stationarity : bool, optional
         Whether or not to require the autoregressive parameters to correspond
         to a stationarity process. This is only possible in estimation by
         numerical maximum likelihood.
-    enforce_invertibility : boolean, optional
+    enforce_invertibility : bool, optional
         Whether or not to require the moving average parameters to correspond
         to an invertible process. This is only possible in estimation by
         numerical maximum likelihood.
-    concentrate_scale : boolean, optional
+    concentrate_scale : bool, optional
         Whether or not to concentrate the scale (variance of the error term)
         out of the likelihood. This reduces the number of parameters by one.
         This is only applicable when considering estimation by numerical
@@ -167,15 +167,15 @@ class SARIMAXSpecification(object):
     max_reduced_ma_order : int
         Largest lag in the reduced moving average polynomial. Equal to
         `max_ma_order + max_seasonal_ma_order * seasonal_periods`.
-    enforce_stationarity : boolean
+    enforce_stationarity : bool
         Whether or not to transform the AR parameters to enforce stationarity
         in the autoregressive component of the model. This is only possible
         in estimation by numerical maximum likelihood.
-    enforce_invertibility : boolean
+    enforce_invertibility : bool
         Whether or not to transform the MA parameters to enforce invertibility
         in the moving average component of the model. This is only possible
         in estimation by numerical maximum likelihood.
-    concentrate_scale : boolean
+    concentrate_scale : bool
         Whether or not to concentrate the variance (scale term) out of the
         log-likelihood function. This is only applicable when considering
         estimation by numerical maximum likelihood.
@@ -206,7 +206,6 @@ class SARIMAXSpecification(object):
 
     >>> spec = SARIMAXSpecification(ar_order=1, seasonal_order=(1, 0, 0, 4))
     SARIMAXSpecification(endog=y, order=(1, 0, 0), seasonal_order=(1, 0, 0, 4))
-
     """
 
     def __init__(self, endog=None, exog=None, order=None,
@@ -214,13 +213,14 @@ class SARIMAXSpecification(object):
                  seasonal_ar_order=None, seasonal_diff=None,
                  seasonal_ma_order=None, seasonal_periods=None, trend=None,
                  enforce_stationarity=None, enforce_invertibility=None,
-                 concentrate_scale=None, dates=None, freq=None,
+                 concentrate_scale=None, trend_offset=1, dates=None, freq=None,
                  missing='none'):
 
         # Basic parameters
         self.enforce_stationarity = enforce_stationarity
         self.enforce_invertibility = enforce_invertibility
         self.concentrate_scale = concentrate_scale
+        self.trend_offset = trend_offset
 
         # Validate that we were not given conflicting specifications
         has_order = order is not None
@@ -262,6 +262,14 @@ class SARIMAXSpecification(object):
         elif not has_seasonal_order:
             seasonal_order = (0, 0, 0, 0)
 
+        # Validate shapes of `order`, `seasonal_order`
+        if len(order) != 3:
+            raise ValueError('`order` argument must be an iterable with three'
+                             ' elements.')
+        if len(seasonal_order) != 4:
+            raise ValueError('`seasonal_order` argument must be an iterable'
+                             ' with four elements.')
+
         # Validate differencing parameters
         if order[1] < 0:
             raise ValueError('Cannot specify negative differencing.')
@@ -287,6 +295,8 @@ class SARIMAXSpecification(object):
             int(seasonal_order[3]))
 
         # Validate seasonals
+        if seasonal_order[3] == 1:
+            raise ValueError('Seasonal periodicity must be greater than 1.')
         if ((seasonal_order[0] != 0 or seasonal_order[1] != 0 or
                 seasonal_order[2] != 0) and seasonal_order[3] == 0):
             raise ValueError('Must include nonzero seasonal periodicity if'
@@ -371,6 +381,7 @@ class SARIMAXSpecification(object):
         # constant) and the zero polynomial (i.e. not even a constant). The
         # former has `trend_order = 0`, while the latter has
         # `trend_order = None`.
+        self.k_trend = len(self.trend_terms)
         if len(self.trend_terms) == 0:
             self.trend_order = None
             self.trend_degree = None
@@ -383,7 +394,7 @@ class SARIMAXSpecification(object):
 
         # Handle endog / exog
         # Standardize exog
-        _, exog = prepare_exog(exog)
+        self.k_exog, exog = prepare_exog(exog)
 
         # Standardize endog (including creating a faux endog if necessary)
         faux_endog = endog is None
@@ -393,7 +404,7 @@ class SARIMAXSpecification(object):
         # Add trend data into exog
         nobs = len(endog) if exog is None else len(exog)
         if self.trend_order is not None:
-            trend_data = self.construct_trend_data(nobs)
+            trend_data = self.construct_trend_data(nobs, trend_offset)
             if exog is None:
                 exog = trend_data
             elif _is_using_pandas(exog, None):
@@ -410,6 +421,11 @@ class SARIMAXSpecification(object):
                                       missing=missing)
         self.endog = None if faux_endog else self._model.endog
         self.exog = self._model.exog
+
+        # Validate endog shape
+        if not faux_endog and self.endog.ndim > 1 and self.endog.shape[1] > 1:
+            raise ValueError('SARIMAX models require univariate `endog`. Got'
+                             ' shape %s.' % str(self.endog.shape))
 
         self._has_missing = (
             None if faux_endog else np.any(np.isnan(self.endog)))
@@ -613,7 +629,6 @@ class SARIMAXSpecification(object):
 
         >>> spec.validate_estimator('not_an_estimator')
         ValueError: "not_an_estimator" is not a valid estimator.
-
         """
         has_ar = self.max_ar_order != 0
         has_ma = self.max_ma_order != 0
@@ -718,7 +733,6 @@ class SARIMAXSpecification(object):
          'seasonal_ar_params': array([], dtype=float64),
          'seasonal_ma_params': array([], dtype=float64),
          'sigma2': 4.0}
-
         """
         params = validate_basic(params, self.k_params,
                                 allow_infnan=allow_infnan,
@@ -768,7 +782,7 @@ class SARIMAXSpecification(object):
 
         Returns
         -------
-        params : array
+        params : ndarray
             Array of parameters.
 
         Examples
@@ -776,7 +790,6 @@ class SARIMAXSpecification(object):
         >>> spec = SARIMAXSpecification(ar_order=1)
         >>> spec.join_params(ar_params=0.5, sigma2=4)
         array([0.5, 4. ])
-
         """
         definitions = [
             ('exogenous variables', self.k_exog_params, exog_params),
@@ -832,7 +845,6 @@ class SARIMAXSpecification(object):
         ValueError: Non-positive variance term.
         >>> spec.validate_params([-1.5, 4.])
         ValueError: Non-stationary autoregressive polynomial.
-
         """
         # Note: split_params includes basic validation
         params = self.split_params(params)
@@ -877,7 +889,7 @@ class SARIMAXSpecification(object):
 
         Returns
         -------
-        constrained : array
+        constrained : ndarray
             Array of model parameters transformed to produce a valid model.
 
         Notes
@@ -893,7 +905,6 @@ class SARIMAXSpecification(object):
         >>> spec = SARIMAXSpecification(ar_order=1)
         >>> spec.constrain_params([10, -2])
         array([-0.99504,  4.     ])
-
         """
         unconstrained = self.split_params(unconstrained)
         params = {}
@@ -940,7 +951,7 @@ class SARIMAXSpecification(object):
 
         Returns
         -------
-        unconstrained : array
+        unconstrained : ndarray
             Array of parameters with constraining transformions reversed.
 
         Notes
@@ -954,7 +965,6 @@ class SARIMAXSpecification(object):
         >>> spec = SARIMAXSpecification(ar_order=1)
         >>> spec.unconstrain_params([-0.5, 4.])
         array([0.57735, 2.     ])
-
         """
         constrained = self.split_params(constrained)
         params = {}

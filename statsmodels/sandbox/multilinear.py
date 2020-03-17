@@ -79,7 +79,7 @@ def multiOLS(model, dataframe, column_list=None, method='fdr_bh',
 
     alpha: float, optional
         the significance level used for the pvalue correction (default 0.05)
-    subset: boolean array
+    subset: bool array
         the selected rows to be used in the regression
 
     all the other parameters will be directed to the model creation.
@@ -284,7 +284,7 @@ def multigroup(pvals, groups, exact=True, keep_all=True, alpha=0.05):
     >>> url = url + "Rdatasets/csv/HistData/Guerry.csv"
     >>> df = pd.read_csv(url, index_col='dept')
 
-    evaluate the relationship between the variuos paramenters whith the Wealth
+    evaluate the relationship between the various paramenters whith the Wealth
     >>> pvals = multiOLS('Wealth', df)['adj_pvals', '_f_test']
 
     define the groups

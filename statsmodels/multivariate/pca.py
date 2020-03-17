@@ -37,7 +37,7 @@ class PCA(object):
         but not standardizing is equivalent to computing principal components
         from the covariance matrix of data.
     normalize : bool , optional
-        Indicates whether th normalize the factors to have unit inner product.
+        Indicates whether to normalize the factors to have unit inner product.
         If False, the loadings will have unit inner product.
     gls : bool, optional
         Flag indicating to implement a two-step GLS estimator where
@@ -45,7 +45,7 @@ class PCA(object):
         and then the inverse residual variance is used as a set of weights to
         estimate the final principal components.  Setting gls to True requires
         ncomp to be less then the min of the number of rows or columns.
-    weights : array, optional
+    weights : ndarray, optional
         Series weights to use after transforming data according to standardize
         or demean when computing the principal components.
     method : str, optional
@@ -98,15 +98,15 @@ class PCA(object):
         nvar array of eigenvalues
     eigenvecs : array or DataFrame
         nvar by nvar array of eigenvectors
-    weights : array
+    weights : ndarray
         nvar array of weights used to compute the principal components,
         normalized to unit length
-    transformed_data : array
+    transformed_data : ndarray
         Standardized, demeaned and weighted data used to compute
         principal components and related quantities
-    cols : array
+    cols : ndarray
         Array of indices indicating columns used in the PCA
-    rows : array
+    rows : ndarray
         Array of indices indicating rows used in the PCA
 
     Notes
@@ -701,7 +701,7 @@ class PCA(object):
         cumulative : bool, optional
             Flag indicating whether to plot the eigenvalues or cumulative
             eigenvalues
-        ax : Matplotlib axes instance, optional
+        ax : AxesSubplot, optional
             An axes on which to draw the graph.  If omitted, new a figure
             is created
 
@@ -755,7 +755,7 @@ class PCA(object):
         ncomp : int, optional
             Number of components ot include in the plot.  If None, will
             plot the minimum of 10 or the number of computed components.
-        ax : Matplotlib axes instance, optional
+        ax : AxesSubplot, optional
             An axes on which to draw the graph.  If omitted, new a figure
             is created.
 
@@ -789,7 +789,7 @@ def pca(data, ncomp=None, standardize=True, demean=True, normalize=True,
 
     Parameters
     ----------
-    data : array
+    data : ndarray
         Variables in columns, observations in rows.
     ncomp : int, optional
         Number of components to return.  If None, returns the as many as the
@@ -808,7 +808,7 @@ def pca(data, ncomp=None, standardize=True, demean=True, normalize=True,
         in the first step principal components are used to estimate residuals,
         and then the inverse residual variance is used as a set of weights to
         estimate the final principal components
-    weights : array, optional
+    weights : ndarray, optional
         Series weights to use after transforming data according to standardize
         or demean when computing the principal components.
     method : str, optional

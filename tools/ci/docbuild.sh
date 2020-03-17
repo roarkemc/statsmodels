@@ -5,10 +5,6 @@ cd "$SRCDIR"/docs
 pytest ../statsmodels/examples/tests
 
 set -e
-# Clean up
-echo '================================= Clean ================================='
-make clean
-git clean -xdf
 
 # Build documentation
 echo '========================================================================'
@@ -65,8 +61,12 @@ if [[ -z "$TRAVIS_TAG" ]]; then
   doctr deploy --built-docs docs/build/html/ --deploy-repo statsmodels/statsmodels.github.io devel > /dev/null;
 else
   if [[ "$TRAVIS_TAG" != *"dev"* ]]; then  # do not push on dev tags
-    doctr deploy --build-tags --built-docs docs/build/html/ --deploy-repo statsmodels/statsmodels.github.io "$TRAVIS_TAG";
-    doctr deploy --build-tags --built-docs docs/build/html/ --deploy-repo statsmodels/statsmodels.github.io stable;
+    echo doctr deploy --build-tags --built-docs docs/build/html/ --deploy-repo statsmodels/statsmodels.github.io "$TRAVIS_TAG" > /dev/null;
+    doctr deploy --build-tags --built-docs docs/build/html/ --deploy-repo statsmodels/statsmodels.github.io "$TRAVIS_TAG" > /dev/null;
+    if [[ "$TRAVIS_TAG" != *"rc"* ]]; then  # do not push on main on rc
+      echo doctr deploy --build-tags --built-docs docs/build/html/ --deploy-repo statsmodels/statsmodels.github.io stable > /dev/null;
+      doctr deploy --build-tags --built-docs docs/build/html/ --deploy-repo statsmodels/statsmodels.github.io stable > /dev/null;
+    fi;
   fi;
 fi;
 

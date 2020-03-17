@@ -61,6 +61,7 @@ TODO
 
 
 '''
+from statsmodels.compat.python import lzip, lrange
 
 import copy
 import math
@@ -68,7 +69,7 @@ import math
 import numpy as np
 from numpy.testing import assert_almost_equal, assert_equal
 from scipy import stats, interpolate
-from statsmodels.compat.python import lzip, lrange
+
 from statsmodels.iolib.table import SimpleTable
 #temporary circular import
 from statsmodels.stats.multitest import multipletests, _ecdf as ecdf, fdrcorrection as fdrcorrection0, fdrcorrection_twostage
@@ -517,7 +518,7 @@ class GroupsStats(object):
 
         Parameters
         ----------
-        x : array, 2d
+        x : ndarray, 2d
             first column data, second column group labels
         useranks : bool
             if true, then use ranks as data corresponding to the
@@ -619,7 +620,6 @@ class TukeyHSDResults(object):
 
     Other attributes contain information about the data from the
     MultiComparison instance: data, df_total, groups, groupsunique, variance.
-
     """
     def __init__(self, mc_object, results_table, q_crit, reject=None,
                  meandiffs=None, std_pairs=None, confint=None, df_total=None,
@@ -682,7 +682,7 @@ class TukeyHSDResults(object):
 
         Returns
         -------
-        fig : Matplotlib Figure object
+        Figure
             handle to figure object containing interval plots
 
         Notes
@@ -721,7 +721,6 @@ class TukeyHSDResults(object):
 
         Optionally provide one of the group names to color code the plot to
         highlight group means different from comparison_name.
-
         """
         fig, ax1 = utils.create_mpl_ax(ax)
         if figsize is not None:
@@ -785,9 +784,9 @@ class MultiComparison(object):
 
     Parameters
     ----------
-    data : array
+    data : ndarray
         independent data samples
-    groups : array
+    groups : ndarray
         group labels corresponding to each data point
     group_order : list[str], optional
         the desired order for the group mean results to be reported in. If
@@ -1108,7 +1107,7 @@ def varcorrection_pairs_unbalanced(nobs_all, srange=False):
 
     Returns
     -------
-    correction : array
+    correction : ndarray
         Correction factor for variance.
 
 
@@ -1202,9 +1201,9 @@ def varcorrection_pairs_unequal(var_all, nobs_all, df_all):
 
     Returns
     -------
-    varjoint : array
+    varjoint : ndarray
         joint variance.
-    dfjoint : array
+    dfjoint : ndarray
         joint Satterthwait's degrees of freedom
 
 
@@ -1296,6 +1295,8 @@ def tukeyhsd(mean_all, nobs_all, var_all, df=None, alpha=0.05, q_crit=None):
         q_crit = get_tukeyQcrit2(n_means, df_total, alpha=alpha)
 
     pvalues = get_tukey_pvalue(n_means, df_total, st_range)
+    # we need pvalues to be atleast_1d for iteration. see #6132
+    pvalues = np.atleast_1d(pvalues)
 
     reject = st_range > q_crit
     crit_int = std_pairs * q_crit

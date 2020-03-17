@@ -259,7 +259,7 @@ class TestHoltFPPFixed(CheckExponentialSmoothing):
 
     def test_conf_int(self):
         # Note: cannot test against the output of the `holt` command in this
-        # case, as `holt` seems to have a bug: while it is parameterized in
+        # case, as `holt` seems to have a bug: while it is parametrized in
         # terms of `beta_star`, its confidence intervals are computed as though
         # beta_star was actually beta = alpha * beta_star.
         # Instead, we'll compare against a direct computation as in
@@ -802,6 +802,26 @@ class TestHoltWintersNoTrendConcentratedInitialization(
         start_params = pd.Series(
             [0.5, 0.49, 30., 2., -2, -9], index=mod.param_names)
         super().setup_class(mod, start_params=start_params, rtol=1e-4)
+
+
+class TestMultiIndex(CheckExponentialSmoothing):
+    @classmethod
+    def setup_class(cls):
+        oildata_copy = oildata.copy()
+        oildata_copy.name = ("oil", "data")
+        mod = ExponentialSmoothing(oildata_copy,
+                                   initialization_method='simple')
+        res = mod.filter([results_params['oil_fpp2']['alpha']])
+
+        super().setup_class('oil_fpp2', res)
+
+    def test_conf_int(self):
+        # Forecast confidence intervals
+        ci_95 = self.forecast.conf_int(alpha=0.05)
+        assert_allclose(ci_95["lower ('oil', 'data')"],
+                        results_predict['%s_lower' % self.name][self.nobs:])
+        assert_allclose(ci_95["upper ('oil', 'data')"],
+                        results_predict['%s_upper' % self.name][self.nobs:])
 
 
 def test_invalid():

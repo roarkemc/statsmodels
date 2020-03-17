@@ -265,21 +265,21 @@ class HoltWintersResults(Results):
     params_formatted: pd.DataFrame
         DataFrame containing all parameters, their short names and a flag
         indicating whether the parameter's value was optimized to fit the data.
-    fittedfcast: array
+    fittedfcast: ndarray
         An array of both the fitted values and forecast values.
-    fittedvalues: array
+    fittedvalues: ndarray
         An array of the fitted values. Fitted by the Exponential Smoothing
         model.
-    fcastvalues: array
+    fcastvalues: ndarray
         An array of the forecast values forecast by the Exponential Smoothing
         model.
     sse: float
         The sum of squared errors
-    level: array
+    level: ndarray
         An array of the levels values that make up the fitted values.
-    slope: array
+    slope: ndarray
         An array of the slope values that make up the fitted values.
-    season: array
+    season: ndarray
         An array of the seasonal values that make up the fitted values.
     aic: float
         The Akaike information criterion.
@@ -287,7 +287,7 @@ class HoltWintersResults(Results):
         The Bayesian information criterion.
     aicc: float
         AIC with a correction for finite sample sizes.
-    resid: array
+    resid: ndarray
         An array of the residuals of the fittedvalues and actual values.
     k: int
         the k parameter used to remove the bias in AIC, BIC etc.
@@ -322,7 +322,7 @@ class HoltWintersResults(Results):
 
         Returns
         -------
-        forecast : array
+        forecast : ndarray
             Array of out of sample forecasts.
         """
         return self.model.predict(self.params, start, end)
@@ -339,7 +339,7 @@ class HoltWintersResults(Results):
 
         Returns
         -------
-        forecast : array
+        forecast : ndarray
             Array of out of sample forecasts
         """
         try:
@@ -524,7 +524,7 @@ class ExponentialSmoothing(TimeSeriesModel):
 
         Parameters
         ----------
-        params : array
+        params : ndarray
             The fitted model parameters.
         start : int, str, or datetime
             Zero-indexed observation number at which to start forecasting, ie.,
@@ -537,7 +537,7 @@ class ExponentialSmoothing(TimeSeriesModel):
 
         Returns
         -------
-        predicted values : array
+        predicted values : ndarray
         """
         if start is None:
             freq = getattr(self._index, 'freq', 1)
@@ -581,7 +581,7 @@ class ExponentialSmoothing(TimeSeriesModel):
             that the average residual is equal to zero.
         use_basinhopping : bool, optional
             Using Basin Hopping optimizer to find optimal values
-        start_params : array, optional
+        start_params : ndarray, optional
             Starting values to used when optimizing the fit.  If not provided,
             starting values are determined using a combination of grid search
             and reasonable values based on the initial values of the data
@@ -680,12 +680,13 @@ class ExponentialSmoothing(TimeSeriesModel):
                 # using guesstimates for the levels
                 txi = xi & np.array([True, True, True, False, False, True] + [False] * m)
                 txi = txi.astype(np.bool)
-                bounds = np.array([(0.0, 1.0), (0.0, 1.0), (0.0, 1.0),
-                                   (0.0, None), (0.0, None), (0.0, 1.0)] + [(None, None), ] * m)
+                bounds = ([(0.0, 1.0), (0.0, 1.0), (0.0, 1.0), (0.0, None),
+                           (0.0, None), (0.0, 1.0)] + [(None, None), ] * m)
                 args = (txi.astype(np.uint8), p, y, lvls, b, s, m, self.nobs,
                         max_seen)
                 if start_params is None and np.any(txi) and use_brute:
-                    res = brute(func, bounds[txi], args, Ns=20,
+                    _bounds = [bnd for bnd, flag in zip(bounds, txi) if flag]
+                    res = brute(func, _bounds, args, Ns=20,
                                 full_output=True, finish=None)
                     p[txi], max_seen, _, _ = res
                 else:
@@ -708,14 +709,32 @@ class ExponentialSmoothing(TimeSeriesModel):
                     # Take a deeper look in the local minimum we are in to find the best
                     # solution to parameters, maybe hop around to try escape the local
                     # minimum we may be in.
+                    _bounds = [bnd for bnd, flag in zip(bounds, xi) if flag]
                     res = basinhopping(func, p[xi],
-                                       minimizer_kwargs={'args': args, 'bounds': bounds[xi]},
+                                       minimizer_kwargs={'args': args, 'bounds': _bounds},
                                        stepsize=0.01)
                     success = res.lowest_optimization_result.success
                 else:
                     # Take a deeper look in the local minimum we are in to find the best
                     # solution to parameters
-                    res = minimize(func, p[xi], args=args, bounds=bounds[xi])
+                    _bounds = [bnd for bnd, flag in zip(bounds, xi) if flag]
+                    lb, ub = np.asarray(_bounds).T.astype(np.float)
+                    initial_p = p[xi]
+
+                    # Ensure strictly inbounds
+                    loc = initial_p <= lb
+                    upper = ub[loc].copy()
+                    upper[~np.isfinite(upper)] = 100.0
+                    eps = 1e-4
+                    initial_p[loc] = lb[loc] + eps * (upper - lb[loc])
+
+                    loc = initial_p >= ub
+                    lower = lb[loc].copy()
+                    lower[~np.isfinite(lower)] = -100.0
+                    eps = 1e-4
+                    initial_p[loc] = ub[loc] - eps * (ub[loc] - lower)
+
+                    res = minimize(func, initial_p, args=args, bounds=_bounds)
                     success = res.success
 
                 if not success:
@@ -949,7 +968,7 @@ class ExponentialSmoothing(TimeSeriesModel):
                        'smoothing_seasonal': gamma,
                        'damping_slope': phi if damped else np.nan,
                        'initial_level': lvls[0],
-                       'initial_slope': b[0] / phi,
+                       'initial_slope': b[0] / phi if phi > 0 else 0,
                        'initial_seasons': s[:m],
                        'use_boxcox': use_boxcox,
                        'lamda': lamda,
@@ -1030,7 +1049,7 @@ class SimpleExpSmoothing(ExponentialSmoothing):
             the value is set then this value will be used as the value.
         optimized : bool, optional
             Estimate model parameters by maximizing the log-likelihood
-        start_params : array, optional
+        start_params : ndarray, optional
             Starting values to used when optimizing the fit.  If not provided,
             starting values are determined using a combination of grid search
             and reasonable values based on the initial values of the data
@@ -1117,7 +1136,7 @@ class Holt(ExponentialSmoothing):
             set then this value will be used as the value.
         optimized : bool, optional
             Estimate model parameters by maximizing the log-likelihood
-        start_params : array, optional
+        start_params : ndarray, optional
             Starting values to used when optimizing the fit.  If not provided,
             starting values are determined using a combination of grid search
             and reasonable values based on the initial values of the data

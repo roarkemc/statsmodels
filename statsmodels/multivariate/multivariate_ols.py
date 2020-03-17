@@ -83,7 +83,6 @@ def _multivariate_ols_fit(endog, exog, method='svd', tolerance=1e-8):
     Notes
     -----
     Status: experimental and incomplete
-
     """
     y = endog
     x = exog
@@ -140,7 +139,7 @@ def multivariate_stats(eigenvals,
 
     Parameters
     ----------
-    eigenvals : array
+    eigenvals : ndarray
         The eigenvalues of inv(E + H)*H
     r_err_sscp : int
         Rank of E + H
@@ -381,9 +380,9 @@ class _MultivariateOLS(Model):
 
     Attributes
     ----------
-    endog : array
+    endog : ndarray
         See Parameters.
-    exog : array
+    exog : ndarray
         See Parameters.
     """
     _formula_max_endog = None
@@ -404,7 +403,6 @@ class _MultivariateOLS(Model):
 class _MultivariateOLSResults(object):
     """
     _MultivariateOLS results class
-
     """
     def __init__(self, fitted_mv_ols):
         if (hasattr(fitted_mv_ols, 'data') and

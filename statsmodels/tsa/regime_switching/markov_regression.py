@@ -79,7 +79,6 @@ class MarkovRegression(markov_switching.MarkovSwitching):
     "State-Space Models with Regime Switching:
     Classical and Gibbs-Sampling Approaches with Applications".
     MIT Press Books. The MIT Press.
-
     """
 
     def __init__(self, endog, k_regimes, trend='c', exog=None, order=0,
@@ -423,7 +422,7 @@ class MarkovRegressionResults(markov_switching.MarkovSwitchingResults):
     ----------
     model : MarkovRegression instance
         The fitted model instance
-    params : array
+    params : ndarray
         Fitted parameters
     filter_results : HamiltonFilterResults or KimSmootherResults instance
         The underlying filter and, optionally, smoother output
@@ -439,11 +438,10 @@ class MarkovRegressionResults(markov_switching.MarkovSwitchingResults):
         The underlying filter and, optionally, smoother output
     nobs : float
         The number of observations used to fit the model.
-    params : array
+    params : ndarray
         The parameters of the model.
     scale : float
         This is currently set to 1.0 and not used by the model or its results.
-
     """
     pass
 

@@ -419,11 +419,11 @@ class DistributedModel(object):
     results_kwds : dict-like
         See Parameters.
 
-    Examples
-    --------
-
     Notes
     -----
+
+    Examples
+    --------
     """
 
     def __init__(self, partitions, model_class=None,
@@ -635,19 +635,17 @@ class DistributedModel(object):
 
 
 class DistributedResults(LikelihoodModelResults):
-
     """
     Class to contain model results
 
     Parameters
     ----------
     model : class instance
-        class instance for model used for distributed data,
+        Class instance for model used for distributed data,
         this particular instance uses fake data and is really
         only to allow use of methods like predict.
-    params : array
-        parameter estimates from the fit model.
-
+    params : ndarray
+        Parameter estimates from the fit model.
     """
 
     def __init__(self, model, params):
@@ -674,7 +672,6 @@ class DistributedResults(LikelihoodModelResults):
         -------
             prediction : ndarray, pandas.Series or pandas.DataFrame
             See self.model.predict
-
         """
 
         return self.model.predict(self.params, exog, *args, **kwargs)

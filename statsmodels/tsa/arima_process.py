@@ -30,6 +30,7 @@ __all__ = ['arma_acf', 'arma_acovf', 'arma_generate_sample',
            'lpol2index', 'index2lpol']
 
 
+# Remove after 0.11
 @deprecate_kwarg('sigma', 'scale')
 def arma_generate_sample(ar, ma, nsample, scale=1, distrvs=None,
                          axis=0, burnin=0):
@@ -176,6 +177,7 @@ def arma_acovf(ar, ma, nobs=10, sigma2=1, dtype=None):
     return acovf[:nobs]
 
 
+# Remove after 0.11
 @deprecate_kwarg('nobs', 'lags')
 def arma_acf(ar, ma, lags=10):
     """
@@ -205,6 +207,7 @@ def arma_acf(ar, ma, lags=10):
     return acovf / acovf[0]
 
 
+# Remove after 0.11
 @deprecate_kwarg('nobs', 'lags')
 def arma_pacf(ar, ma, lags=10):
     """
@@ -285,6 +288,7 @@ def arma_periodogram(ar, ma, worN=None, whole=0):
     return w, sd
 
 
+# Remove after 0.11
 @deprecate_kwarg('nobs', 'leads')
 def arma_impulse_response(ar, ma, leads=100):
     """
@@ -345,6 +349,7 @@ def arma_impulse_response(ar, ma, leads=100):
     return signal.lfilter(ma, ar, impulse)
 
 
+# Remove after 0.11
 @deprecate_kwarg('nobs', 'lags')
 def arma2ma(ar, ma, lags=100):
     """
@@ -371,6 +376,7 @@ def arma2ma(ar, ma, lags=100):
     return arma_impulse_response(ar, ma, leads=lags)
 
 
+# Remove after 0.11
 @deprecate_kwarg('nobs', 'lags')
 def arma2ar(ar, ma, lags=100):
     """
@@ -475,9 +481,9 @@ def lpol2index(ar):
 
     Returns
     -------
-    coeffs : array
+    coeffs : ndarray
         non-zero coefficients of lag polynomial
-    index : array
+    index : ndarray
         index (lags) of lag polynomial with non-zero elements
     """
     ar = array_like(ar, 'ar')
@@ -492,9 +498,9 @@ def index2lpol(coeffs, index):
 
     Parameters
     ----------
-    coeffs : array
+    coeffs : ndarray
         non-zero coefficients of lag polynomial
-    index : array
+    index : ndarray
         index (lags) of lag polynomial with non-zero elements
 
     Returns
@@ -522,9 +528,8 @@ def lpol_fima(d, n=20):
 
     Returns
     -------
-    ma : array
+    ma : ndarray
         coefficients of lag polynomial
-
     """
     # hide import inside function until we use this heavily
     from scipy.special import gammaln
@@ -547,7 +552,7 @@ def lpol_fiar(d, n=20):
 
     Returns
     -------
-    ar : array
+    ar : ndarray
         coefficients of lag polynomial
 
     Notes:
@@ -576,7 +581,6 @@ def lpol_sdiff(s):
     Returns
     -------
     sdiff : list, length s+1
-
     """
     return [1] + [0] * (s - 1) + [-1]
 
@@ -597,9 +601,9 @@ def deconvolve(num, den, n=None):
 
     Returns
     -------
-    quot : array
+    quot : ndarray
         quotient or filtered series
-    rem : array
+    rem : ndarray
         remainder
 
     Notes
@@ -610,7 +614,6 @@ def deconvolve(num, den, n=None):
 
     This is copied from scipy.signal.signaltools and added n as optional
     parameter.
-
     """
     num = np.atleast_1d(num)
     den = np.atleast_1d(den)
@@ -646,7 +649,8 @@ class ArmaProcess(object):
     ----------
     ar : array_like
         Coefficient for autoregressive lag polynomial, including zero lag.
-        See the notes for some information about the sign.
+        Must be entered using the signs from the lag polynomial representation.
+        See the notes for more information about the sign.
     ma : array_like
         Coefficient for moving-average lag polynomial, including zero lag.
     nobs : int, optional
@@ -674,10 +678,13 @@ class ArmaProcess(object):
     .. math::
 
         \left(1-\phi_{1}L-\ldots-\phi_{p}L^{p}\right)y_{t} =
-            \left(1-\theta_{1}L-\ldots-\theta_{q}L^{q}\right)
+            \left(1+\theta_{1}L+\ldots+\theta_{q}L^{q}\right)\epsilon_{t}
 
     Examples
     --------
+    ARMA(2,2) with AR coefficients 0.75 and -0.25, and MA coefficients 0.65 and 0.35
+
+    >>> import statsmodels.api as sm
     >>> import numpy as np
     >>> np.random.seed(12345)
     >>> arparams = np.array([.75, -.25])
@@ -689,10 +696,18 @@ class ArmaProcess(object):
     True
     >>> arma_process.isinvertible
     True
+    >>> arma_process.arroots
+    array([1.5-1.32287566j, 1.5+1.32287566j])
     >>> y = arma_process.generate_sample(250)
     >>> model = sm.tsa.ARMA(y, (2, 2)).fit(trend='nc', disp=0)
     >>> model.params
     array([ 0.79044189, -0.23140636,  0.70072904,  0.40608028])
+
+    The same ARMA(2,2) Using the from_coeffs class method
+
+    >>> arma_process = sm.tsa.ArmaProcess.from_coeffs(arparams, maparams)
+    >>> arma_process.arroots
+    array([1.5-1.32287566j, 1.5+1.32287566j])
     """
 
     # TODO: Check unit root behavior
@@ -882,7 +897,7 @@ class ArmaProcess(object):
 
         Returns
         -------
-        manew : array
+        manew : ndarray
            A new invertible MA lag-polynomial, returned if retnew is false.
         wasinvertible : bool
            True if the MA lag-polynomial was already invertible, returned if

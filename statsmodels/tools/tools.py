@@ -1,8 +1,6 @@
 """
 Utility functions models code
 """
-from functools import reduce
-
 import numpy as np
 import numpy.lib.recfunctions as nprf
 import pandas as pd
@@ -45,9 +43,9 @@ def drop_missing(Y, X=None, axis=1):
 
     Returns
     -------
-    Y : array
+    Y : ndarray
         All Y where the
-    X : array
+    X : ndarray
 
     Notes
     -----
@@ -188,6 +186,10 @@ def categorical(data, col=None, dictnames=False, drop=False):
         return dummies
     # catch recarrays and structured arrays
     elif data.dtype.names or data.__class__ is np.recarray:
+        # deprecated: remove path after 0.12
+        import warnings
+        from statsmodels.tools.sm_exceptions import recarray_warning
+        warnings.warn(recarray_warning, FutureWarning)
         if not col and np.squeeze(data).ndim > 1:
             raise IndexError("col is None and the input array is not 1d")
         if isinstance(col, int):
@@ -290,8 +292,8 @@ def add_constant(data, prepend=True, has_constant='skip'):
     has_constant : str {'raise', 'add', 'skip'}
         Behavior if ``data`` already has a constant. The default will return
         data without adding another constant. If 'raise', will raise an
-        error if a constant is present. Using 'add' will duplicate the
-        constant, if one is present.
+        error if any column has a constant value. Using 'add' will add a
+        column of 1s if a constant column is present.
 
     Returns
     -------
@@ -305,15 +307,20 @@ def add_constant(data, prepend=True, has_constant='skip'):
     column's name is 'const'.
     """
     if _is_using_pandas(data, None) or _is_recarray(data):
+        if _is_recarray(data):
+            # deprecated: remove recarray support after 0.12
+            import warnings
+            from statsmodels.tools.sm_exceptions import recarray_warning
+            warnings.warn(recarray_warning, FutureWarning)
         from statsmodels.tsa.tsatools import add_trend
         return add_trend(data, trend='c', prepend=prepend, has_constant=has_constant)
 
     # Special case for NumPy
     x = np.asanyarray(data)
     if x.ndim == 1:
-        x = x[:,None]
+        x = x[:, None]
     elif x.ndim > 2:
-        raise ValueError('Only implementd 2-dimensional arrays')
+        raise ValueError('Only implemented for 2-dimensional arrays')
 
     is_nonzero_const = np.ptp(x, axis=0) == 0
     is_nonzero_const &= np.all(x != 0.0, axis=0)
@@ -530,33 +537,6 @@ def unsqueeze(data, axis, oldshape):
     return data.reshape(newshape)
 
 
-def chain_dot(*arrs):
-    """
-    Returns the dot product of the given matrices.
-
-    Parameters
-    ----------
-    arrs: argument list of ndarray
-
-    Returns
-    -------
-    Dot product of all arguments.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from statsmodels.tools import chain_dot
-    >>> A = np.arange(1,13).reshape(3,4)
-    >>> B = np.arange(3,15).reshape(4,3)
-    >>> C = np.arange(5,8).reshape(3,1)
-    >>> chain_dot(A,B,C)
-    array([[1820],
-       [4300],
-       [6780]])
-    """
-    return reduce(lambda x, y: np.dot(y, x), arrs[::-1])
-
-
 def nan_dot(A, B):
     """
     Returns np.dot(left_matrix, right_matrix) with the convention that
@@ -611,7 +591,7 @@ def _ensure_2d(x, ndarray=False):
 
     Parameters
     ----------
-    x : array, Series, DataFrame or None
+    x : ndarray, Series, DataFrame or None
         Input to verify dimensions, and to transform as necesary
     ndarray : bool
         Flag indicating whether to always return a NumPy array. Setting False
@@ -620,7 +600,7 @@ def _ensure_2d(x, ndarray=False):
 
     Returns
     -------
-    out : array, DataFrame or None
+    out : ndarray, DataFrame or None
         array or DataFrame with 2 dimensiona.  One dimensional arrays are
         returned as nobs by 1. None is returned if x is None.
     names : list of str or None
