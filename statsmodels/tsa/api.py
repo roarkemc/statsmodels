@@ -7,7 +7,7 @@ __all__ = ['AR', 'arima', 'AutoReg', 'ARMA', 'ARIMA',
            'interp',
            'stattools',
            'acovf', 'acf', 'pacf', 'pacf_yw', 'pacf_ols', 'ccovf', 'ccf',
-           'periodogram', 'q_stat', 'coint', 'arma_order_select_ic',
+           'q_stat', 'coint', 'arma_order_select_ic',
            'adfuller', 'kpss', 'bds',
            'datetools',
            'seasonal_decompose',
@@ -15,9 +15,9 @@ __all__ = ['AR', 'arima', 'AutoReg', 'ARMA', 'ARIMA',
            'x13_arima_select_order', 'x13_arima_analysis',
            'statespace',
            'SARIMAX', 'UnobservedComponents', 'VARMAX', 'DynamicFactor',
-           'MarkovRegression', 'MarkovAutoregression',
-           'ExponentialSmoothing', 'SimpleExpSmoothing', 'Holt',
-           'arma_generate_sample', 'ArmaProcess', 'STL',
+           'DynamicFactorMQ', 'MarkovRegression', 'MarkovAutoregression',
+           'ETSModel', 'ExponentialSmoothing', 'SimpleExpSmoothing', 'Holt',
+           'arma_generate_sample', 'ArmaProcess', 'STL', 'STLForecast',
            'bk_filter', 'cf_filter', 'hp_filter']
 
 from .ar_model import AR, AutoReg
@@ -35,7 +35,7 @@ from . import interp
 from . import stattools
 from .stattools import (
     acovf, acf, pacf, pacf_yw, pacf_ols, ccovf, ccf,
-    periodogram, q_stat, coint, arma_order_select_ic,
+    q_stat, coint, arma_order_select_ic,
     adfuller, kpss, bds)
 from .base import datetools
 from .seasonal import seasonal_decompose
@@ -47,9 +47,12 @@ from .statespace.sarimax import SARIMAX
 from .statespace.structural import UnobservedComponents
 from .statespace.varmax import VARMAX
 from .statespace.dynamic_factor import DynamicFactor
+from .statespace.dynamic_factor_mq import DynamicFactorMQ
 from .regime_switching.markov_regression import MarkovRegression
 from .regime_switching.markov_autoregression import MarkovAutoregression
+from .exponential_smoothing.ets import ETSModel
 from .holtwinters import ExponentialSmoothing, SimpleExpSmoothing, Holt
 from .innovations import api as innovations
 from .seasonal import STL
+from .forecasting.stl import STLForecast
 from .filters import bk_filter, cf_filter, hp_filter

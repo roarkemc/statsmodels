@@ -2364,8 +2364,10 @@ def check_concentrated_scale(filter_univariate=False):
         desired = res_orig.test_heteroskedasticity(method='breakvar')
         assert_allclose(actual, desired, rtol=1e-5, atol=atol)
 
-        actual = res_conc.test_serial_correlation(method='ljungbox')
-        desired = res_orig.test_serial_correlation(method='ljungbox')
+        with pytest.warns(FutureWarning):
+            actual = res_conc.test_serial_correlation(method='ljungbox')
+        with pytest.warns(FutureWarning):
+            desired = res_orig.test_serial_correlation(method='ljungbox')
         assert_allclose(actual, desired, rtol=1e-5, atol=atol)
 
         # Test predict
@@ -2707,3 +2709,74 @@ def test_invalid_seasonal_order():
         sarimax.SARIMAX(endog, seasonal_order=(1, 0, 1, 0))
     with pytest.raises(ValueError):
         sarimax.SARIMAX(endog, seasonal_order=(0, 0, 0, 1))
+
+
+def test_dynamic_str():
+    data = results_sarimax.wpi1_stationary["data"]
+    index = pd.date_range("1980-1-1", freq="MS", periods=len(data))
+    series = pd.Series(data, index=index)
+    mod = sarimax.SARIMAX(series, order=(1, 1, 0), trend="c")
+    res = mod.fit()
+    dynamic = index[-12]
+    desired = res.get_prediction(index[-24], dynamic=12)
+    actual = res.get_prediction(index[-24], dynamic=dynamic)
+    assert_allclose(actual.predicted_mean, desired.predicted_mean)
+    actual = res.get_prediction(index[-24], dynamic=dynamic.to_pydatetime())
+    assert_allclose(actual.predicted_mean, desired.predicted_mean)
+    actual = res.get_prediction(index[-24],
+                                dynamic=dynamic.strftime("%Y-%m-%d"))
+    assert_allclose(actual.predicted_mean, desired.predicted_mean)
+
+
+@pytest.mark.matplotlib
+def test_plot_too_few_obs(reset_randomstate):
+    # GH 6173
+    # SO https://stackoverflow.com/questions/55930880/
+    #    arima-models-plot-diagnostics-share-error/58051895#58051895
+    mod = sarimax.SARIMAX(
+        np.random.normal(size=10), order=(10, 0, 0), enforce_stationarity=False
+    )
+    results = mod.fit()
+    with pytest.raises(ValueError, match="Length of endogenous"):
+        results.plot_diagnostics(figsize=(15, 5))
+    y = np.random.standard_normal(9)
+    mod = sarimax.SARIMAX(
+        y,
+        order=(1, 1, 1),
+        seasonal_order=(1, 1, 0, 12),
+        enforce_stationarity=False,
+        enforce_invertibility=False,
+    )
+    results = mod.fit()
+    with pytest.raises(ValueError, match="Length of endogenous"):
+        results.plot_diagnostics(figsize=(30, 15))
+
+
+def test_sarimax_starting_values_few_obsevations(reset_randomstate):
+    # GH 6396, 6801
+    y = np.random.standard_normal(17)
+
+    sarimax_model = sarimax.SARIMAX(
+        endog=y, order=(1, 1, 1), seasonal_order=(0, 1, 0, 12), trend="n"
+    ).fit(disp=False)
+
+    assert np.all(
+        np.isfinite(sarimax_model.predict(start=len(y), end=len(y) + 11))
+    )
+
+
+def test_sarimax_forecast_exog_trend(reset_randomstate):
+    # Test that an error is not raised that the given `exog` for the forecast
+    # period is a constant when forecating with an intercept
+    # GH 7019
+    y = np.zeros(10)
+    x = np.zeros(10)
+
+    mod = sarimax.SARIMAX(endog=y, exog=x, order=(1, 0, 0), trend='c')
+    res = mod.smooth([0.2, 0.4, 0.5, 1.0])
+
+    # Test for h=1
+    assert_allclose(res.forecast(1, exog=1), 0.2 + 0.4)
+
+    # Test for h=2
+    assert_allclose(res.forecast(2, exog=[1., 1.]), 0.2 + 0.4, 0.2 + 0.4 + 0.5)

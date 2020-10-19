@@ -375,7 +375,7 @@ class EstimatorSettings(object):
         ``joblib.Parallel``.  Default is -1, meaning ``n_cores - 1``, with
         ``n_cores`` the number of available CPU cores.
         See the `joblib documentation
-        <https://pythonhosted.org/joblib/parallel.html>`_ for more details.
+        <https://joblib.readthedocs.io/en/latest/generated/joblib.Parallel.html>`_ for more details.
 
     Examples
     --------
@@ -422,7 +422,7 @@ class LeaveOneOut(object):
         nobs, k_vars = np.shape(X)
 
         for i in range(nobs):
-            index = np.ones(nobs, dtype=np.bool)
+            index = np.ones(nobs, dtype=bool)
             index[i] = False
             yield X[index, :]
 

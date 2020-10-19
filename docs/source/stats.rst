@@ -174,6 +174,28 @@ Non-Parametric Tests
    cochrans_q
    Runs
 
+.. currentmodule:: statsmodels.stats.descriptivestats
+
+.. autosummary::
+   :toctree: generated/
+
+   sign_test
+
+.. currentmodule:: statsmodels.stats.nonparametric
+
+.. autosummary::
+   :toctree: generated/
+
+   rank_compare_2indep
+   rank_compare_2ordinal
+   cohensd2problarger
+   prob_larger_continuous
+   rankdata_2samp
+
+
+Descriptive Statistics
+----------------------
+
 .. module:: statsmodels.stats.descriptivestats
    :synopsis: Descriptive statistics
 
@@ -182,7 +204,8 @@ Non-Parametric Tests
 .. autosummary::
    :toctree: generated/
 
-   sign_test
+   describe
+   Description
 
 .. _interrater:
 
@@ -376,6 +399,8 @@ equations.
    NormalIndPower
    FTestAnovaPower
    FTestPower
+   normal_power_het
+   normal_sample_size_one_tail
    tt_solve_power
    tt_ind_solve_power
    zt_ind_solve_power
@@ -385,7 +410,6 @@ equations.
 
 Proportion
 ----------
-
 
 Also available are hypothesis test, confidence intervals and effect size for
 proportions that can be used with NormalIndPower.
@@ -418,6 +442,138 @@ proportions that can be used with NormalIndPower.
    power_binom_tost
    power_ztost_prop
    samplesize_confint_proportion
+
+Statistics for two independent samples
+Status: experimental, API might change, added in 0.12
+
+.. autosummary::
+   :toctree: generated
+
+   test_proportions_2indep
+   confint_proportions_2indep
+   power_proportions_2indep
+   tost_proportions_2indep
+   samplesize_proportions_2indep_onetail
+   score_test_proportions_2indep
+   _score_confint_inversion
+
+
+Rates
+-----
+
+Statistical functions for rates. This currently includes hypothesis tests for
+two independent samples.
+
+Status: experimental, API might change, added in 0.12
+
+.. module:: statsmodels.stats.rates
+   :synopsis: Tests for Poisson rates
+
+.. currentmodule:: statsmodels.stats.rates
+
+.. autosummary::
+   :toctree: generated
+
+   test_poisson_2indep
+   etest_poisson_2indep
+   tost_poisson_2indep
+
+
+Multivariate
+------------
+
+Statistical functions for multivariate samples.
+
+This includes hypothesis test and confidence intervals for mean of sample
+of multivariate observations and hypothesis tests for the structure of a
+covariance matrix.
+
+Status: experimental, API might change, added in 0.12
+
+.. module:: statsmodels.stats.multivariate
+   :synopsis: Statistical functions for multivariate samples.
+
+.. currentmodule:: statsmodels.stats.multivariate
+
+.. autosummary::
+   :toctree: generated
+
+   test_mvmean
+   confint_mvmean
+   confint_mvmean_fromstats
+   test_mvmean_2indep
+   test_cov
+   test_cov_blockdiagonal
+   test_cov_diagonal
+   test_cov_oneway
+   test_cov_spherical
+
+
+.. _oneway_stats:
+
+Oneway Anova
+------------
+
+Hypothesis test, confidence intervals and effect size for oneway analysis of
+k samples.
+
+Status: experimental, API might change, added in 0.12
+
+.. module:: statsmodels.stats.oneway
+   :synopsis: Statistical functions for oneway analysis, Anova.
+
+.. currentmodule:: statsmodels.stats.oneway
+
+.. autosummary::
+   :toctree: generated
+
+
+   anova_oneway
+   anova_generic
+   equivalence_oneway
+   equivalence_oneway_generic
+   power_equivalence_oneway
+   _power_equivalence_oneway_emp
+
+   test_scale_oneway
+   equivalence_scale_oneway
+
+   confint_effectsize_oneway
+   confint_noncentrality
+   convert_effectsize_fsqu
+   effectsize_oneway
+   f2_to_wellek
+   fstat_to_wellek
+   wellek_to_f2
+   _fstat2effectsize
+
+   scale_transform
+   simulate_power_equivalence_oneway
+
+
+.. _robust_stats:
+
+Robust, Trimmed Statistics
+--------------------------
+
+Statistics for samples that are trimmed at a fixed fraction. This includes
+class TrimmedMean for one sample statistics. It is used in `stats.oneway`
+for trimmed "Yuen" Anova.
+
+Status: experimental, API might change, added in 0.12
+
+.. module:: statsmodels.stats.robust_compare
+   :synopsis: Trimmed sample statistics.
+
+.. currentmodule:: statsmodels.stats.robust_compare
+
+.. autosummary::
+   :toctree: generated
+
+   TrimmedMean
+   scale_transform
+   trim_mean
+   trimboth
 
 
 Moment Helpers
@@ -497,12 +653,12 @@ to verify in an observational setting.
 
 Oaxaca-Blinder Decomposition
 ----------------------------
- 
-The Oaxaca-Blinder, or Blinder-Oaxaca as some call it, decomposition attempts to explain 
-gaps in means of groups. It uses the linear models of two given regression equations to 
-show what is explained by regression coefficients and known data and what is unexplained 
-using the same data. There are two types of Oaxaca-Blinder decompositions, the two-fold 
-and the three-fold, both of which can and are used in Economics Literature to discuss 
+
+The Oaxaca-Blinder, or Blinder-Oaxaca as some call it, decomposition attempts to explain
+gaps in means of groups. It uses the linear models of two given regression equations to
+show what is explained by regression coefficients and known data and what is unexplained
+using the same data. There are two types of Oaxaca-Blinder decompositions, the two-fold
+and the three-fold, both of which can and are used in Economics Literature to discuss
 differences in groups. This method helps classify discrimination or unobserved effects.
 This function attempts to port the functionality of the oaxaca command in STATA to Python.
 
@@ -537,3 +693,38 @@ Distance dependence measures and the Distance Covariance (dCov) test.
    distance_covariance
    distance_variance
 
+
+Meta-Analysis
+-------------
+
+Functions for basic meta-analysis of a collection of sample statistics.
+
+Examples can be found in the notebook
+
+ * `Meta-Analysis <examples/notebooks/generated/metaanalysis1.html>`__
+
+Status: experimental, API might change, added in 0.12
+
+.. module:: statsmodels.stats.meta_analysis
+   :synopsis: Meta-Analysis
+
+.. currentmodule:: statsmodels.stats.meta_analysis
+
+.. autosummary::
+   :toctree: generated/
+
+   combine_effects
+   effectsize_2proportions
+   effectsize_smd
+   CombineResults
+
+The module also includes internal functions to compute random effects
+variance.
+
+
+.. autosummary::
+   :toctree: generated/
+
+   _fit_tau_iter_mm
+   _fit_tau_iterative
+   _fit_tau_mm

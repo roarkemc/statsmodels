@@ -6,6 +6,7 @@ License: Simplified-BSD
 """
 
 import numpy as np
+from types import SimpleNamespace
 
 from statsmodels.tsa.statespace.representation import OptionWrapper
 from statsmodels.tsa.statespace.kalman_filter import (KalmanFilter,
@@ -362,7 +363,8 @@ class KalmanSmoother(KalmanFilter):
 
     def smooth(self, smoother_output=None, smooth_method=None, results=None,
                run_filter=True, prefix=None, complex_step=False,
-               **kwargs):
+               update_representation=True, update_filter=True,
+               update_smoother=True, **kwargs):
         """
         Apply the Kalman smoother to the statespace model.
 
@@ -393,8 +395,14 @@ class KalmanSmoother(KalmanFilter):
 
         # Create the results object
         results = self.results_class(self)
-        results.update_representation(self)
-        results.update_filter(kfilter)
+        if update_representation:
+            results.update_representation(self)
+        if update_filter:
+            results.update_filter(kfilter)
+        else:
+            # (even if we don't update all filter results, still need to
+            # update this)
+            results.nobs_diffuse = kfilter.nobs_diffuse
 
         # Run the smoother
         if smoother_output is None:
@@ -402,7 +410,8 @@ class KalmanSmoother(KalmanFilter):
         smoother = self._smooth(smoother_output, results=results, **kwargs)
 
         # Update the results
-        results.update_smoother(smoother)
+        if update_smoother:
+            results.update_smoother(smoother)
 
         return results
 
@@ -548,7 +557,7 @@ class SmootherResults(FilterResults):
         'smoothed_state', 'smoothed_state_cov', 'smoothed_state_autocov',
         'smoothed_measurement_disturbance', 'smoothed_state_disturbance',
         'smoothed_measurement_disturbance_cov',
-        'smoothed_state_disturbance_cov'
+        'smoothed_state_disturbance_cov', 'innovations_transition'
     ]
 
     _smoother_options = KalmanSmoother.smoother_outputs
@@ -659,6 +668,9 @@ class SmootherResults(FilterResults):
             else:
                 setattr(self, name, None)
 
+        self.innovations_transition = (
+            np.array(smoother.innovations_transition, copy=True))
+
         # Diffuse objects
         self.scaled_smoothed_diffuse_estimator = None
         self.scaled_smoothed_diffuse1_estimator_cov = None
@@ -705,6 +717,758 @@ class SmootherResults(FilterResults):
             self.scaled_smoothed_estimator /= self.scale
             self.scaled_smoothed_estimator_cov /= self.scale
             self.smoothing_error /= self.scale
+
+        # Cache
+        self.__smoothed_state_autocovariance = {}
+
+    def _smoothed_state_autocovariance(self, shift, start, end,
+                                       extend_kwargs=None):
+        """
+        Compute "forward" autocovariances, Cov(t, t+j)
+
+        Parameters
+        ----------
+        shift : int
+            The number of period to shift forwards when computing the
+            autocovariance. This has the opposite sign as `lag` from the
+            `smoothed_state_autocovariance` method.
+        start : int, optional
+            The start of the interval (inclusive) of autocovariances to compute
+            and return.
+        end : int, optional
+            The end of the interval (exclusive) autocovariances to compute and
+            return. Note that since it is an exclusive endpoint, the returned
+            autocovariances do not include the value at this index.
+        extend_kwargs : dict, optional
+            Keyword arguments containing updated state space system matrices
+            for handling out-of-sample autocovariance computations in
+            time-varying state space models.
+
+        """
+        if extend_kwargs is None:
+            extend_kwargs = {}
+
+        # Size of returned array in the time dimension
+        n = end - start
+
+        # Get number of post-sample periods we need to create an extended
+        # model to compute
+        if shift == 0:
+            max_insample = self.nobs - shift
+        else:
+            max_insample = self.nobs - shift + 1
+        n_postsample = max(0, end - max_insample)
+
+        # Get full in-sample arrays
+        if shift != 0:
+            L = self.innovations_transition
+            P = self.predicted_state_cov
+            N = self.scaled_smoothed_estimator_cov
+        else:
+            acov = self.smoothed_state_cov
+
+        # If applicable, append out-of-sample arrays
+        if n_postsample > 0:
+            # Note: we need 1 less than the number of post
+            endog = np.zeros((n_postsample, self.k_endog)) * np.nan
+            mod = self.model.extend(endog, start=self.nobs, **extend_kwargs)
+            mod.initialize_known(self.predicted_state[..., self.nobs],
+                                 self.predicted_state_cov[..., self.nobs])
+            res = mod.smooth()
+
+            if shift != 0:
+                start_insample = max(0, start)
+                L = np.concatenate((L[..., start_insample:],
+                                    res.innovations_transition), axis=2)
+                P = np.concatenate((P[..., start_insample:],
+                                    res.predicted_state_cov[..., 1:]),
+                                   axis=2)
+                N = np.concatenate((N[..., start_insample:],
+                                    res.scaled_smoothed_estimator_cov),
+                                   axis=2)
+                end -= start_insample
+                start -= start_insample
+            else:
+                acov = np.concatenate((acov, res.predicted_state_cov), axis=2)
+
+        if shift != 0:
+            # Subset to appropriate start, end
+            start_insample = max(0, start)
+            LT = L[..., start_insample:end + shift - 1].T
+            P = P[..., start_insample:end + shift].T
+            N = N[..., start_insample:end + shift - 1].T
+
+            # Intermediate computations
+            tmpLT = np.eye(self.k_states)[None, :, :]
+            length = P.shape[0] - shift  # this is the required length of LT
+            for i in range(1, shift + 1):
+                tmpLT = LT[shift - i:length + shift - i] @ tmpLT
+            eye = np.eye(self.k_states)[None, ...]
+
+            # Compute the autocovariance
+            acov = np.zeros((n, self.k_states, self.k_states))
+            acov[:start_insample - start] = np.nan
+            acov[start_insample - start:] = (
+                P[:-shift] @ tmpLT @ (eye - N[shift - 1:] @ P[shift:]))
+        else:
+            acov = acov.T[start:end]
+
+        return acov
+
+    def smoothed_state_autocovariance(self, lag=1, t=None, start=None,
+                                      end=None, extend_kwargs=None):
+        r"""
+        Compute state vector autocovariances, conditional on the full dataset
+
+        Computes:
+
+        .. math::
+
+            Cov(\alpha_t - \hat \alpha_t, \alpha_{t - j} - \hat \alpha_{t - j})
+
+        where the `lag` argument gives the value for :math:`j`. Thus when
+        the `lag` argument is positive, the autocovariance is between the
+        current and previous periods, while if `lag` is negative the
+        autocovariance is between the current and future periods.
+
+        Parameters
+        ----------
+        lag : int, optional
+            The number of period to shift when computing the autocovariance.
+            Default is 1.
+        t : int, optional
+            A specific period for which to compute and return the
+            autocovariance. Cannot be used in combination with `start` or
+            `end`. See the Returns section for details on how this
+            parameter affects what is what is returned.
+        start : int, optional
+            The start of the interval (inclusive) of autocovariances to compute
+            and return. Cannot be used in combination with the `t` argument.
+            See the Returns section for details on how this parameter affects
+            what is what is returned. Default is 0.
+        end : int, optional
+            The end of the interval (exclusive) autocovariances to compute and
+            return. Note that since it is an exclusive endpoint, the returned
+            autocovariances do not include the value at this index. Cannot be
+            used in combination with the `t` argument. See the Returns section
+            for details on how this parameter affects what is what is returned
+            and what the default value is.
+        extend_kwargs : dict, optional
+            Keyword arguments containing updated state space system matrices
+            for handling out-of-sample autocovariance computations in
+            time-varying state space models.
+
+        Returns
+        -------
+        acov : ndarray
+            Array of autocovariance matrices. If the argument `t` is not
+            provided, then it is shaped `(k_states, k_states, n)`, while if `t`
+            given then the third axis is dropped and the array is shaped
+            `(k_states, k_states)`.
+
+            The output under the default case differs somewhat based on the
+            state space model and the sign of the lag. To see how these cases
+            differ, denote the output at each time point as Cov(t, t-j). Then:
+
+            - If `lag > 0` (and the model is either time-varying or
+              time-invariant), then the returned array is shaped `(*, *, nobs)`
+              and each entry [:, :, t] contains Cov(t, t-j). However, the model
+              does not have enough information to compute autocovariances in
+              the pre-sample period, so that we cannot compute Cov(1, 1-lag),
+              Cov(2, 2-lag), ..., Cov(lag, 0). Thus the first `lag` entries
+              have all values set to NaN.
+
+            - If the model is time-invariant and `lag < -1` or if `lag` is
+              0 or -1, and the model is either time-invariant or time-varying,
+              then the returned array is shaped `(*, *, nobs)` and each
+              entry [:, :, t] contains Cov(t, t+j). Moreover, all entries are
+              available (i.e. there are no NaNs).
+
+            - If the model is time-varying and `lag < -1` and `extend_kwargs`
+              is not provided, then the returned array is shaped
+              `(*, *, nobs - lag + 1)`.
+
+            - However, if the model is time-varying and `lag < -1`, then
+              `extend_kwargs` can be provided with `lag - 1` additional
+              matrices so that the returned array is shaped `(*, *, nobs)` as
+              usual.
+
+            More generally, the dimension of the last axis will be
+            `start - end`.
+
+        Notes
+        -----
+        This method computes:
+
+        .. math::
+
+            Cov(\alpha_t - \hat \alpha_t, \alpha_{t - j} - \hat \alpha_{t - j})
+
+        where the `lag` argument determines the autocovariance order :math:`j`,
+        and `lag` is an integer (positive, zero, or negative). This method
+        cannot compute values associated with time points prior to the sample,
+        and so it returns a matrix of NaN values for these time points.
+        For example, if `start=0` and `lag=2`, then assuming the output is
+        assigned to the variable `acov`, we will have `acov[..., 0]` and
+        `acov[..., 1]` as matrices filled with NaN values.
+
+        Based only on the "current" results object (i.e. the Kalman smoother
+        applied to the sample), there is not enough information to compute
+        Cov(t, t+j) for the last `lag - 1` observations of the sample. However,
+        the values can be computed for these time points using the transition
+        equation of the state space representation, and so for time-invariant
+        state space models we do compute these values. For time-varying models,
+        this can also be done, but updated state space matrices for the
+        out-of-sample time points must be provided via the `extend_kwargs`
+        argument.
+
+        See [1]_, Chapter 4.7, for all details about how these autocovariances
+        are computed.
+
+        The `t` and `start`/`end` parameters compute and return only the
+        requested autocovariances. As a result, using these parameters is
+        recommended to reduce the computational burden, particularly if the
+        number of observations and/or the dimension of the state vector is
+        large.
+
+        References
+        ----------
+        .. [1] Durbin, James, and Siem Jan Koopman. 2012.
+               Time Series Analysis by State Space Methods: Second Edition.
+               Oxford University Press.
+        """
+        # We can cache the results for time-invariant models
+        cache_key = None
+        if extend_kwargs is None or len(extend_kwargs) == 0:
+            cache_key = (lag, t, start, end)
+
+        # Short-circuit for a cache-hit
+        if (cache_key is not None and
+                cache_key in self.__smoothed_state_autocovariance):
+            return self.__smoothed_state_autocovariance[cache_key]
+
+        # Switch to only positive values for `lag`
+        forward_autocovariances = False
+        if lag < 0:
+            lag = -lag
+            forward_autocovariances = True
+
+        # Handle `t`
+        if t is not None and (start is not None or end is not None):
+            raise ValueError('Cannot specify both `t` and `start` or `end`.')
+        if t is not None:
+            start = t
+            end = t + 1
+
+        # Defaults
+        if start is None:
+            start = 0
+        if end is None:
+            if forward_autocovariances and lag > 1 and extend_kwargs is None:
+                end = self.nobs - lag + 1
+            else:
+                end = self.nobs
+        if extend_kwargs is None:
+            extend_kwargs = {}
+
+        # Sanity checks
+        if start < 0 or end < 0:
+            raise ValueError('Negative `t`, `start`, or `end` is not allowed.')
+        if end < start:
+            raise ValueError('`end` must be after `start`')
+        if lag == 0 and self.smoothed_state_cov is None:
+            raise RuntimeError('Cannot return smoothed state covariances'
+                               ' if those values have not been computed by'
+                               ' Kalman smoothing.')
+
+        # We already have in-sample (+1 out-of-sample) smoothed covariances
+        if lag == 0 and end <= self.nobs + 1:
+            acov = self.smoothed_state_cov
+            if end == self.nobs + 1:
+                acov = np.concatenate(
+                    (acov[..., start:], self.predicted_state_cov[..., -1:]),
+                    axis=2).T
+            else:
+                acov = acov.T[start:end]
+        # In-sample, we can compute up to Cov(T, T+1) or Cov(T+1, T) and down
+        # to Cov(1, 2) or Cov(2, 1). So:
+        # - For lag=1 we set Cov(1, 0) = np.nan and then can compute up to T-1
+        #   in-sample values Cov(2, 1), ..., Cov(T, T-1) and the first
+        #   out-of-sample value Cov(T+1, T)
+        elif (lag == 1 and self.smoothed_state_autocov is not None and
+                not forward_autocovariances and end <= self.nobs + 1):
+            # nans = np.zeros((self.k_states, self.k_states, lag)) * np.nan
+            # acov = np.concatenate((nans, self.smoothed_state_autocov),
+            #                       axis=2).transpose(2, 0, 1)[start:end]
+            if start == 0:
+                nans = np.zeros((self.k_states, self.k_states, lag)) * np.nan
+                acov = np.concatenate(
+                    (nans, self.smoothed_state_autocov[..., :end - 1]),
+                    axis=2)
+            else:
+                acov = self.smoothed_state_autocov[..., start - 1:end - 1]
+            acov = acov.transpose(2, 0, 1)
+        # - For lag=-1 we can compute T in-sample values, Cov(1, 2), ...,
+        #   Cov(T, T+1) but we cannot compute the first out-of-sample value
+        #   Cov(T+1, T+2).
+        elif (lag == 1 and self.smoothed_state_autocov is not None and
+                forward_autocovariances and end < self.nobs + 1):
+            acov = self.smoothed_state_autocov.T[start:end]
+        # Otherwise, we need to compute additional values at the end of the
+        # sample
+        else:
+            if forward_autocovariances:
+                # Cov(t, t + lag), t = start, ..., end
+                acov = self._smoothed_state_autocovariance(
+                    lag, start, end, extend_kwargs=extend_kwargs)
+            else:
+                # Cov(t, t + lag)' = Cov(t + lag, t),
+                # with t = start - lag, ..., end - lag
+                out = self._smoothed_state_autocovariance(
+                    lag, start - lag, end - lag, extend_kwargs=extend_kwargs)
+                acov = out.transpose(0, 2, 1)
+
+        # Squeeze the last axis or else reshape to have the same axis
+        # definitions as e.g. smoothed_state_cov
+        if t is not None:
+            acov = acov[0]
+        else:
+            acov = acov.transpose(1, 2, 0)
+
+        # Fill in the cache, if applicable
+        if cache_key is not None:
+            self.__smoothed_state_autocovariance[cache_key] = acov
+
+        return acov
+
+    def news(self, previous, t=None, start=None, end=None,
+             revised=None, design=None):
+        r"""
+        Compute the news and impacts associated with a data release
+
+        Parameters
+        ----------
+        previous : SmootherResults
+            Prior results object relative to which to compute the news. This
+            results object must have identical state space representation for
+            the prior sample period so that the only difference is that this
+            results object has updates to the observed data.
+        t : int, optional
+            A specific period for which to compute the news. Cannot be used in
+            combination with `start` or `end`.
+        start : int, optional
+            The start of the interval (inclusive) of news to compute. Cannot be
+            used in combination with the `t` argument. Default is the last
+            period of the sample (`nobs - 1`).
+        end : int, optional
+            The end of the interval (exclusive) of news to compute. Note that
+            since it is an exclusive endpoint, the returned news do not include
+            the value at this index. Cannot be used in combination with the `t`
+            argument.
+        design : array, optional
+            Design matrix for the period `t` in time-varying models. If this
+            model has a time-varying design matrix, and the argument `t` is out
+            of this model's sample, then a new design matrix for period `t`
+            must be provided. Unused otherwise.
+
+        Returns
+        -------
+        news_results : SimpleNamespace
+            News and impacts associated with a data release. Includes the
+            following attributes:
+
+            - `update_impacts`: update to forecasts of impacted variables from
+              the news. It is equivalent to E[y^i | post] - E[y^i | revision],
+              where y^i are the variables of interest. In [1]_, this is
+              described as "revision" in equation (17).
+            - `revision_impacts`: update to forecasts of variables impacted
+              variables from data revisions. It is
+              E[y^i | revision] - E[y^i | previous], and does not have a
+              specific notation in [1]_, since there for simplicity they assume
+              that there are no revisions.
+            - `news`: the unexpected component of the updated data. Denoted
+              I = y^u - E[y^u | previous], where y^u are the data points that
+              were newly incorporated in a data release (but not including
+              revisions to data points that already existed in the previous
+              release). In [1]_, this is described as "news" in equation (17).
+            - `gain`: the gain matrix associated with the "Kalman-like" update
+              from the news, E[y I'] E[I I']^{-1}. In [1]_, this can be found
+              in the equation For E[y_{k,t_k} \mid I_{v+1}] in the middle of
+              page 17.
+            - `update_forecasts`: forecasts of the updated periods used to
+              construct the news, E[y^u | previous].
+            - `update_realized`: realizations of the updated periods used to
+              construct the news, y^u.
+            - `prev_impacted_forecasts`: previous forecast of the periods of
+              interest, E[y^i | previous].
+            - `post_impacted_forecasts`: forecast of the periods of interest
+              after taking into account both revisions and updates,
+              E[y^i | post].
+            - `revision_results`: results object that updates the `previous`
+              results to take into account data revisions.
+            - `revisions_ix`: list of `(t, i)` positions of revisions in endog
+            - `updates_ix`: list of `(t, i)` positions of updates to endog
+
+        Notes
+        -----
+        This method computes the effect of new data (e.g. from a new data
+        release) on smoothed forecasts produced by a state space model, as
+        described in [1]_.
+
+        References
+        ----------
+        .. [1] Bańbura, Marta and Modugno, Michele. 2010.
+               "Maximum likelihood estimation of factor models on data sets
+               with arbitrary pattern of missing data."
+               No 1189, Working Paper Series, European Central Bank.
+               https://EconPapers.repec.org/RePEc:ecb:ecbwps:20101189.
+        .. [2] Bańbura, Marta, and Michele Modugno.
+               "Maximum likelihood estimation of factor models on datasets with
+               arbitrary pattern of missing data."
+               Journal of Applied Econometrics 29, no. 1 (2014): 133-160.
+
+        """
+        # Handle `t`
+        if t is not None and (start is not None or end is not None):
+            raise ValueError('Cannot specify both `t` and `start` or `end`.')
+        if t is not None:
+            start = t
+            end = t + 1
+
+        # Defaults
+        if start is None:
+            start = self.nobs - 1
+        if end is None:
+            end = self.nobs
+
+        # Sanity checks
+        if start < 0 or end < 0:
+            raise ValueError('Negative `t`, `start`, or `end` is not allowed.')
+        if end <= start:
+            raise ValueError('`end` must be after `start`')
+
+        if self.smoothed_state_cov is None:
+            raise ValueError('Cannot compute news without having applied the'
+                             ' Kalman smoother first.')
+
+        error_ss = ('This results object has %s and so it does not appear to'
+                    ' by an extension of `previous`. Can only compute the'
+                    ' news by comparing this results set to previous results'
+                    ' objects.')
+        if self.nobs < previous.nobs:
+            raise ValueError(error_ss % 'fewer observations than'
+                             ' `previous`')
+
+        if not (self.k_endog == previous.k_endog and
+                self.k_states == previous.k_states and
+                self.k_posdef == previous.k_posdef):
+            raise ValueError(error_ss % 'different state space dimensions than'
+                             ' `previous`')
+
+        for key in self.model.shapes.keys():
+            if key == 'obs':
+                continue
+            tv = getattr(self, key).shape[-1] > 1
+            tv_prev = getattr(previous, key).shape[-1] > 1
+            if tv and not tv_prev:
+                raise ValueError(error_ss % f'time-varying {key} while'
+                                 ' `previous` does not')
+            if not tv and tv_prev:
+                raise ValueError(error_ss % f'time-invariant {key} while'
+                                 ' `previous` does not')
+
+        # We cannot forecast out-of-sample periods in a time-varying models
+        if end > self.nobs and not self.model.time_invariant:
+            raise RuntimeError('Cannot compute the impacts of news on periods'
+                               ' outside of the sample in time-varying'
+                               ' models.')
+
+        # For time-varying case, figure out extension kwargs
+        extend_kwargs = {}
+        for key in self.model.shapes.keys():
+            if key == 'obs':
+                continue
+            mat = getattr(self, key)
+            prev_mat = getattr(previous, key)
+            if mat.shape[-1] > prev_mat.shape[-1]:
+                extend_kwargs[key] = mat[..., prev_mat.shape[-1]:]
+
+        # Figure out which indices have changed
+        revisions_ix, updates_ix = previous.model.diff_endog(self.endog.T)
+
+        # Compute prev / post impact forecasts
+        prev_impacted_forecasts = (
+            previous.smoothed_forecasts[..., start:end])
+        if end > previous.nobs:
+            predict_start = max(start, previous.nobs)
+            p = previous.predict(
+                start=predict_start, end=end, **extend_kwargs)
+            prev_impacted_forecasts = np.concatenate(
+                (prev_impacted_forecasts, p.forecasts), axis=1)
+        post_impacted_forecasts = (
+            self.smoothed_forecasts[..., start:end])
+        if end > self.nobs:
+            predict_start = max(start, self.nobs)
+            p = self.predict(start=predict_start, end=end, **extend_kwargs)
+            post_impacted_forecasts = np.concatenate(
+                (post_impacted_forecasts, p.forecasts), axis=1)
+
+        # If we have revisions to previous data, then we need to construct a
+        # new results set that only includes those revisions
+        if len(revisions_ix) > 0 and revised is None:
+            # Copy time-varying matrices (required by clone)
+            clone_kwargs = {}
+            for key in self.model.shapes.keys():
+                if key == 'obs':
+                    continue
+                prev_mat = getattr(previous, key)
+                if prev_mat.shape[-1] > 1:
+                    clone_kwargs[key] = prev_mat
+
+            rev_endog = self.endog.T[:previous.nobs].copy()
+            rev_endog[previous.missing.astype(bool).T] = np.nan
+            rev_mod = previous.model.clone(rev_endog, **clone_kwargs)
+            # TODO: performance: can get a performance improvement for large
+            #       models with `update_filter=False, update_smoother=False`,
+            #       but then will need to manually populate the fields that we
+            #       need for what we do below (i.e. we call
+            #       `smoothed_forecasts` and `predict`)
+            # TODO: performance: we don't need to smooth back through the
+            #       entire sample for what we're doing, since we only need
+            #       smoothed_forecasts for the impact period
+            revised = rev_mod.smooth()
+
+        # Compute impacts from the revisions, if any
+        if len(revisions_ix) > 0:
+            # Compute the effect of revisions on forecasts of the impacted
+            # variables
+            revised_impact_forecasts = (
+                revised.smoothed_forecasts[..., start:end])
+
+            if end > revised.nobs:
+                predict_start = max(start, revised.nobs)
+                p = revised.predict(
+                    start=predict_start, end=end, **extend_kwargs)
+                revised_impact_forecasts = np.concatenate(
+                    (revised_impact_forecasts, p.forecasts), axis=1)
+
+            revision_impacts = (revised_impact_forecasts -
+                                prev_impacted_forecasts).T
+            if t is not None:
+                revision_impacts = revision_impacts[0]
+        else:
+            revised = previous
+            revision_impacts = None
+
+        # Now handle updates
+        if len(updates_ix) > 0:
+            # Figure out which time points we need forecast errors for
+            update_t, update_k = zip(*updates_ix)
+            update_start_t = np.min(update_t)
+            update_end_t = np.max(update_t)
+            update_end_insample_t = np.minimum(revised.nobs - 1, update_end_t)
+            update_nforecast = update_end_t - update_end_insample_t
+
+            # For the in-sample periods, get out the smoothed forecasts for
+            # the updated variables for each relevant time period
+            i1 = update_start_t
+            i2 = update_end_insample_t + 1
+            if i2 > i1:
+                forecasts_insample = revised.smoothed_forecasts[:, i1:i2]
+            else:
+                forecasts_insample = np.zeros((self.k_endog, 0))
+
+            # For the out-of-sample periods, predicted and smoothed forecasts
+            # for the updated variables are the same
+            if update_nforecast > 0:
+                forecast_start = previous.nobs
+                forecast_end = forecast_start + update_nforecast
+                p = revised.predict(
+                    start=forecast_start, end=forecast_end, **extend_kwargs)
+                forecasts_oos = p.forecasts
+            else:
+                forecasts_oos = np.zeros((self.k_endog, 0))
+            forecasts = np.c_[forecasts_insample, forecasts_oos].T
+
+            realized = self.endog.T[update_start_t:update_end_t + 1]
+            forecasts_error = realized - forecasts
+
+            # Now subset forecast errors to only the (time, endog) elements
+            # that are updates
+            ix_t = update_t - update_start_t
+            update_realized = realized[ix_t, update_k]
+            update_forecasts = forecasts[ix_t, update_k]
+            update_forecasts_error = forecasts_error[ix_t, update_k]
+
+            # Get the gains associated with each of the periods
+            if self.design.shape[2] == 1:
+                design = self.design[..., 0][None, ...]
+            elif end <= self.nobs:
+                design = self.design[..., start:end].transpose(2, 0, 1)
+            else:
+                if design is None:
+                    raise ValueError('Model has time-varying design matrix, so'
+                                     ' an updated time-varying matrix for'
+                                     ' period `t` is required.')
+                elif design.ndim == 2:
+                    design = design[None, ...]
+                else:
+                    design = design.transpose(2, 0, 1)
+            state_gain = revised.smoothed_state_gain(
+                updates_ix, start=start, end=end, extend_kwargs=extend_kwargs)
+            obs_gain = design @ state_gain
+
+            # Get the news
+            update_impacts = obs_gain @ update_forecasts_error
+
+            # Squeeze if `t` argument used
+            if t is not None:
+                obs_gain = obs_gain[0]
+                update_impacts = update_impacts[0]
+        else:
+            update_impacts = None
+            update_forecasts = None
+            update_realized = None
+            update_forecasts_error = None
+            obs_gain = None
+
+        # Results
+        out = SimpleNamespace(
+            # update to forecast of impacted variables from news
+            # = E[y^i | post] - E[y^i | revision] = weight @ news
+            update_impacts=update_impacts,
+            # update to forecast of variables of interest from revisions
+            # = E[y^i | revision] - E[y^i | previous]
+            revision_impacts=revision_impacts,
+            # news = A = y^u - E[y^u | previous]
+            news=update_forecasts_error,
+            # gain matrix = E[y A'] E[A A']^{-1}
+            gain=obs_gain,
+            # forecasts of the updated periods used to construct the news
+            # = E[y^u | previous]
+            update_forecasts=update_forecasts,
+            # realizations of the updated periods used to construct the news
+            # = y^u
+            update_realized=update_realized,
+            # previous forecast of the periods of interest, E[y^i | previous]
+            prev_impacted_forecasts=prev_impacted_forecasts,
+            # post. forecast of the periods of interest, E[y^i | post]
+            post_impacted_forecasts=post_impacted_forecasts,
+            # results object associated with the revision
+            revision_results=None,
+            # list of (x, y) positions of revisions to endog
+            revisions_ix=revisions_ix,
+            # list of (x, y) positions of updates to endog
+            updates_ix=updates_ix)
+        if len(revisions_ix) > 0:
+            out.revision_results = revised
+
+        return out
+
+    def smoothed_state_gain(self, updates_ix, t=None, start=None,
+                            end=None, extend_kwargs=None):
+        r"""
+        Cov(\tilde \alpha_{t}, I) Var(I, I)^{-1}
+
+        where I is a vector of forecast errors associated with
+        `update_indices`.
+
+        Parameters
+        ----------
+        updates_ix : list
+            List of indices `(t, i)`, where `t` denotes a zero-indexed time
+            location and `i` denotes a zero-indexed endog variable.
+        """
+        # Handle `t`
+        if t is not None and (start is not None or end is not None):
+            raise ValueError('Cannot specify both `t` and `start` or `end`.')
+        if t is not None:
+            start = t
+            end = t + 1
+
+        # Defaults
+        if start is None:
+            start = self.nobs - 1
+        if end is None:
+            end = self.nobs
+        if extend_kwargs is None:
+            extend_kwargs = {}
+
+        # Sanity checks
+        if start < 0 or end < 0:
+            raise ValueError('Negative `t`, `start`, or `end` is not allowed.')
+        if end <= start:
+            raise ValueError('`end` must be after `start`')
+
+        # Dimensions
+        n_periods = end - start
+        n_updates = len(updates_ix)
+
+        # Helper to get possibly matrix that is possibly time-varying
+        def get_mat(which, t):
+            mat = getattr(self, which)
+            if mat.shape[-1] > 1:
+                if t < self.nobs:
+                    out = mat[..., t]
+                else:
+                    if (which not in extend_kwargs or
+                            extend_kwargs[which].shape[-1] <= t - self.nobs):
+                        raise ValueError(f'Model has time-varying {which}'
+                                         ' matrix, so an updated time-varying'
+                                         ' matrix for the extension period is'
+                                         ' required.')
+                    out = extend_kwargs[which][..., t - self.nobs]
+            else:
+                out = mat[..., 0]
+            return out
+
+        # Helper to get Cov(\tilde \alpha_{t}, I)
+        def get_cov_state_revision(t):
+            tmp1 = np.zeros((self.k_states, n_updates))
+            for i in range(n_updates):
+                t_i, k_i = updates_ix[i]
+                acov = self.smoothed_state_autocovariance(
+                    lag=t - t_i, t=t, extend_kwargs=extend_kwargs)
+                Z_i = get_mat('design', t_i)
+                tmp1[:, i:i + 1] = acov @ Z_i[k_i:k_i + 1].T
+            return tmp1
+
+        # Compute Cov(\tilde \alpha_{t}, I)
+        tmp1 = np.zeros((n_periods, self.k_states, n_updates))
+        for s in range(start, end):
+            tmp1[s - start] = get_cov_state_revision(s)
+
+        # Compute Var(I)
+        tmp2 = np.zeros((n_updates, n_updates))
+        for i in range(n_updates):
+            t_i, k_i = updates_ix[i]
+            for j in range(i + 1):
+                t_j, k_j = updates_ix[j]
+
+                Z_i = get_mat('design', t_i)
+                Z_j = get_mat('design', t_j)
+
+                acov = self.smoothed_state_autocovariance(
+                    lag=t_i - t_j, t=t_i, extend_kwargs=extend_kwargs)
+                tmp2[i, j] = tmp2[j, i] = (
+                    Z_i[k_i:k_i + 1] @ acov @ Z_j[k_j:k_j + 1].T)
+
+                if t_i == t_j:
+                    H = get_mat('obs_cov', t_i)
+
+                    if i == j:
+                        tmp2[i, j] += H[k_i, k_j]
+                    else:
+                        tmp2[i, j] += H[k_i, k_j]
+                        tmp2[j, i] += H[k_i, k_j]
+
+        # Gain
+        gain = tmp1 @ np.linalg.inv(tmp2)
+
+        if t is not None:
+            gain = gain[0]
+
+        return gain
 
     def _get_smoothed_forecasts(self):
         if self._smoothed_forecasts is None:

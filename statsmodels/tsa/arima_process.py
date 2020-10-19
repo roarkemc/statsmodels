@@ -16,8 +16,6 @@ Judge, ... (1985): The Theory and Practise of Econometrics
 Author: josefpktd
 License: BSD
 """
-from statsmodels.compat.pandas import deprecate_kwarg
-
 import numpy as np
 from scipy import signal, optimize, linalg
 
@@ -30,8 +28,12 @@ __all__ = ['arma_acf', 'arma_acovf', 'arma_generate_sample',
            'lpol2index', 'index2lpol']
 
 
-# Remove after 0.11
-@deprecate_kwarg('sigma', 'scale')
+NONSTATIONARY_ERROR = """\
+The model's autoregressive parameters (ar) indicate that the process
+ is non-stationary. arma_acovf can only be used with stationary processes.
+"""
+
+
 def arma_generate_sample(ar, ma, nsample, scale=1, distrvs=None,
                          axis=0, burnin=0):
     """
@@ -52,8 +54,8 @@ def arma_generate_sample(ar, ma, nsample, scale=1, distrvs=None,
     scale : float
         The standard deviation of noise.
     distrvs : function, random number generator
-        A function that generates the random numbers, and takes sample size
-        as argument. The default is np.random.randn.
+        A function that generates the random numbers, and takes ``size``
+        as argument. The default is np.random.standard_normal.
     axis : int
         See nsample for details.
     burnin : int
@@ -86,7 +88,7 @@ def arma_generate_sample(ar, ma, nsample, scale=1, distrvs=None,
     >>> model.params
     array([ 0.79044189, -0.23140636,  0.70072904,  0.40608028])
     """
-    distrvs = np.random.normal if distrvs is None else distrvs
+    distrvs = np.random.standard_normal if distrvs is None else distrvs
     if np.ndim(nsample) == 0:
         nsample = [nsample]
     if burnin:
@@ -107,7 +109,7 @@ def arma_generate_sample(ar, ma, nsample, scale=1, distrvs=None,
 
 def arma_acovf(ar, ma, nobs=10, sigma2=1, dtype=None):
     """
-    Theoretical autocovariance function of ARMA process.
+    Theoretical autocovariances of stationary ARMA processes
 
     Parameters
     ----------
@@ -150,6 +152,8 @@ def arma_acovf(ar, ma, nobs=10, sigma2=1, dtype=None):
         out = np.zeros(nobs, dtype=dtype)
         out[0] = sigma2
         return out
+    elif p > 0 and np.max(np.abs(np.roots(ar))) >= 1:
+        raise ValueError(NONSTATIONARY_ERROR)
 
     # Get the moving average representation coefficients that we need
     ma_coeffs = arma2ma(ar, ma, lags=m)
@@ -166,7 +170,10 @@ def arma_acovf(ar, ma, nobs=10, sigma2=1, dtype=None):
         A[k, 1:m - k] += tmp_ar[(k + 1):m]
         b[k] = sigma2 * np.dot(ma[k:q + 1], ma_coeffs[:max((q + 1 - k), 0)])
     acovf = np.zeros(max(nobs, m), dtype=dtype)
-    acovf[:m] = np.linalg.solve(A, b)[:, 0]
+    try:
+        acovf[:m] = np.linalg.solve(A, b)[:, 0]
+    except np.linalg.LinAlgError:
+        raise ValueError(NONSTATIONARY_ERROR)
 
     # Iteratively apply (BD, eq. 3.3.9) to solve for remaining autocovariances
     if nobs > m:
@@ -177,8 +184,6 @@ def arma_acovf(ar, ma, nobs=10, sigma2=1, dtype=None):
     return acovf[:nobs]
 
 
-# Remove after 0.11
-@deprecate_kwarg('nobs', 'lags')
 def arma_acf(ar, ma, lags=10):
     """
     Theoretical autocorrelation function of an ARMA process.
@@ -207,8 +212,6 @@ def arma_acf(ar, ma, lags=10):
     return acovf / acovf[0]
 
 
-# Remove after 0.11
-@deprecate_kwarg('nobs', 'lags')
 def arma_pacf(ar, ma, lags=10):
     """
     Theoretical partial autocorrelation function of an ARMA process.
@@ -288,8 +291,6 @@ def arma_periodogram(ar, ma, worN=None, whole=0):
     return w, sd
 
 
-# Remove after 0.11
-@deprecate_kwarg('nobs', 'leads')
 def arma_impulse_response(ar, ma, leads=100):
     """
     Compute the impulse response function (MA representation) for ARMA process.
@@ -349,8 +350,6 @@ def arma_impulse_response(ar, ma, leads=100):
     return signal.lfilter(ma, ar, impulse)
 
 
-# Remove after 0.11
-@deprecate_kwarg('nobs', 'lags')
 def arma2ma(ar, ma, lags=100):
     """
     A finite-lag approximate MA representation of an ARMA process.
@@ -376,8 +375,6 @@ def arma2ma(ar, ma, lags=100):
     return arma_impulse_response(ar, ma, leads=lags)
 
 
-# Remove after 0.11
-@deprecate_kwarg('nobs', 'lags')
 def arma2ar(ar, ma, lags=100):
     """
     A finite-lag AR approximation of an ARMA process.

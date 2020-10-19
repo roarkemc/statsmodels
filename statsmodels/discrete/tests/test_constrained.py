@@ -410,7 +410,12 @@ class CheckGLMConstrainedMixin(CheckPoissonConstrainedMixin):
         # see issue GH#1733
         assert_allclose(res1.aic, res2.infocrit[4], rtol=1e-10)
 
-        assert_allclose(res1.bic, res2.bic, rtol=1e-10)
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FutureWarning)
+            # FutureWarning for BIC changes
+            assert_allclose(res1.bic, res2.bic, rtol=1e-10)
         # bic is deviance based
         # FIXME: dont leave commented-out
         #  assert_allclose(res1.bic, res2.infocrit[5], rtol=1e-10)
@@ -480,7 +485,13 @@ class TestGLMLogitConstrained2(CheckGLMConstrainedMixin):
     @pytest.mark.smoke
     def test_summary2(self):
         # trailing text in summary, assumes it's the first extra string
-        summ = self.res1m.summary2()
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FutureWarning)
+            # FutureWarning for BIC changes
+            summ = self.res1m.summary2()
+
         assert_('linear equality constraints' in summ.extra_txt[0])
 
     def test_fit_constrained_wrap(self):
@@ -542,12 +553,9 @@ def junk():  # FIXME: make this into a test, or move/remove
     # example without offset
     formula1a = 'deaths ~ logpyears + smokes + C(agecat)'
     mod1a = Poisson.from_formula(formula1a, data=data)
-    print(mod1a.exog.shape)
 
     mod1a.fit()
     lc_1a = patsy.DesignInfo(mod1a.exog_names).linear_constraint(
         'C(agecat)[T.4] = C(agecat)[T.5]')
-    resc1a = mod1a.fit_constrained(lc_1a.coefs, lc_1a.constants,
-                                   fit_kwds={'method': 'newton'})
-    print(resc1a[0])
-    print(resc1a[1])
+    mod1a.fit_constrained(lc_1a.coefs, lc_1a.constants,
+                          fit_kwds={'method': 'newton'})

@@ -5,6 +5,9 @@ python setup.py develop
 pytest --cov=statsmodels statsmodels
 coverage html
 """
+from setuptools import Extension, find_packages, setup
+from setuptools.dist import Distribution
+
 from collections import defaultdict
 from distutils.command.clean import clean
 import fnmatch
@@ -14,8 +17,6 @@ import shutil
 import sys
 
 import pkg_resources
-from setuptools import Extension, find_packages, setup
-from setuptools.dist import Distribution
 
 import versioneer
 
@@ -47,8 +48,8 @@ REQ_NOT_MET_MSG = """
 upgrade {0} before installing or install into a fresh virtualenv.
 """
 for key in SETUP_REQUIREMENTS:
-    import importlib
     from distutils.version import LooseVersion
+    import importlib
     req_ver = LooseVersion(SETUP_REQUIREMENTS[key])
     try:
         mod = importlib.import_module(key)
@@ -120,6 +121,8 @@ for filename in FILES_TO_INCLUDE_IN_PACKAGE:
         shutil.copy2(filename, dest)
         FILES_COPIED_TO_PACKAGE.append(dest)
 
+STATESPACE_RESULTS = "statsmodels.tsa.statespace.tests.results"
+
 ADDITIONAL_PACKAGE_DATA = {
     'statsmodels': FILES_TO_INCLUDE_IN_PACKAGE,
     'statsmodels.datasets.tests': ['*.zip'],
@@ -130,7 +133,9 @@ ADDITIONAL_PACKAGE_DATA = {
     'statsmodels.stats.libqsturng': ['*.r', '*.txt', '*.dat'],
     'statsmodels.stats.libqsturng.tests': ['*.csv', '*.dat'],
     'statsmodels.sandbox.regression.tests': ['*.dta', '*.csv'],
-    'statsmodels.tsa.statespace.tests.results': ['*.pkl']
+    STATESPACE_RESULTS: ['*.pkl', '*.csv'],
+    STATESPACE_RESULTS + '.frbny_nowcast': ['test*.mat'],
+    STATESPACE_RESULTS + '.frbny_nowcast.Nowcasting.data.US': ['*.csv']
 }
 
 ##############################################################################
@@ -147,12 +152,14 @@ DEFINE_MACROS = [('CYTHON_TRACE_NOGIL', CYTHON_TRACE_NOGIL)]
 
 exts = dict(
     _stl={'source': 'statsmodels/tsa/_stl.pyx'},
-    _exponential_smoothers={'source': 'statsmodels/tsa/_exponential_smoothers.pyx'},  # noqa: E501
+    _exponential_smoothers={'source': 'statsmodels/tsa/holtwinters/_exponential_smoothers.pyx'},  # noqa: E501
+    _ets_smooth={'source': 'statsmodels/tsa/exponential_smoothing/_ets_smooth.pyx'},  # noqa: E501
     _innovations={'source': 'statsmodels/tsa/_innovations.pyx'},
     _hamilton_filter={'source': 'statsmodels/tsa/regime_switching/_hamilton_filter.pyx.in'},  # noqa: E501
     _kim_smoother={'source': 'statsmodels/tsa/regime_switching/_kim_smoother.pyx.in'},  # noqa: E501
     _arma_innovations={'source': 'statsmodels/tsa/innovations/_arma_innovations.pyx.in'},  # noqa: E501
     linbin={'source': 'statsmodels/nonparametric/linbin.pyx'},
+    _qn={'source': 'statsmodels/robust/_qn.pyx'},
     _smoothers_lowess={'source': 'statsmodels/nonparametric/_smoothers_lowess.pyx'},  # noqa: E501
     kalman_loglike={'source': 'statsmodels/tsa/kalmanf/kalman_loglike.pyx',
                     'include_dirs': ['statsmodels/src'],
@@ -202,7 +209,9 @@ class DeferredBuildExt(build_ext):
 
     def _update_extensions(self):
         import numpy
+        from numpy.distutils.log import set_verbosity
         from numpy.distutils.misc_util import get_info
+        set_verbosity(1)
 
         numpy_includes = [numpy.get_include()]
         extra_incl = pkg_resources.resource_filename('numpy', 'core/include')

@@ -9,9 +9,13 @@ estimators' test functions.
 Author: Chad Fulton
 License: BSD-3
 """
+from statsmodels.compat.platform import PLATFORM_WIN32
+
+import io
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from numpy.testing import assert_equal, assert_allclose, assert_raises, assert_
 
@@ -156,8 +160,9 @@ def test_statespace():
                               include_constant=False)
     mod = ARIMA(endog, order=(1, 0, 1), trend='n')
     res = mod.fit(method='statespace')
-    # Note: atol is required only due to precision issues on Windows
-    assert_allclose(res.params, desired_p.params, atol=1e-4)
+    # Note: tol changes required due to precision issues on Windows
+    rtol = 1e-7 if not PLATFORM_WIN32 else 1e-3
+    assert_allclose(res.params, desired_p.params, rtol=rtol, atol=1e-4)
 
     # ARMA(1, 2), with trend
     desired_p, _ = statespace(endog, order=(1, 0, 2),
@@ -189,7 +194,7 @@ def test_low_memory():
     assert_allclose(res2.params, res1.params)
     assert_allclose(res2.llf, res1.llf)
 
-    # Check that the model's basic memory conservation option wasn't changed
+    # Check that the model's basic memory conservation option was not changed
     assert_equal(mod.ssm.memory_conserve, 0)
 
     # Check that low memory was actually used (just check a couple)
@@ -247,3 +252,74 @@ def test_append():
     res2 = mod2.filter(res_e.params)
 
     assert_allclose(res2.llf, res_e.llf)
+
+
+def test_append_with_exog():
+    # Numpy
+    endog = dta['infl'].iloc[:100].values
+    exog = np.arange(len(endog))
+    mod = ARIMA(endog[:50], exog=exog[:50], trend='c')
+    res = mod.fit()
+    res_e = res.append(endog[50:], exog=exog[50:])
+    mod2 = ARIMA(endog, exog=exog, trend='c')
+    res2 = mod2.filter(res_e.params)
+
+    assert_allclose(res2.llf, res_e.llf)
+
+
+def test_append_with_exog_pandas():
+    # Pandas
+    endog = dta['infl'].iloc[:100]
+    exog = pd.Series(np.arange(len(endog)), index=endog.index)
+    mod = ARIMA(endog.iloc[:50], exog=exog.iloc[:50], trend='c')
+    res = mod.fit()
+    res_e = res.append(endog.iloc[50:], exog=exog.iloc[50:])
+    mod2 = ARIMA(endog, exog=exog, trend='c')
+    res2 = mod2.filter(res_e.params)
+
+    assert_allclose(res2.llf, res_e.llf)
+
+
+def test_cov_type_none():
+    endog = dta['infl'].iloc[:100].values
+    mod = ARIMA(endog[:50], trend='c')
+    res = mod.fit(cov_type='none')
+    assert_allclose(res.cov_params(), np.nan)
+
+
+def test_nonstationary_gls_error():
+    # GH-6540
+    endog = pd.read_csv(
+        io.StringIO(
+            """\
+data\n
+9.112\n9.102\n9.103\n9.099\n9.094\n9.090\n9.108\n9.088\n9.091\n9.083\n9.095\n
+9.090\n9.098\n9.093\n9.087\n9.088\n9.083\n9.095\n9.077\n9.082\n9.082\n9.081\n
+9.081\n9.079\n9.088\n9.096\n9.081\n9.098\n9.081\n9.094\n9.091\n9.095\n9.097\n
+9.108\n9.104\n9.098\n9.085\n9.093\n9.094\n9.092\n9.093\n9.106\n9.097\n9.108\n
+9.100\n9.106\n9.114\n9.111\n9.097\n9.099\n9.108\n9.108\n9.110\n9.101\n9.111\n
+9.114\n9.111\n9.126\n9.124\n9.112\n9.120\n9.142\n9.136\n9.131\n9.106\n9.112\n
+9.119\n9.125\n9.123\n9.138\n9.133\n9.133\n9.137\n9.133\n9.138\n9.136\n9.128\n
+9.127\n9.143\n9.128\n9.135\n9.133\n9.131\n9.136\n9.120\n9.127\n9.130\n9.116\n
+9.132\n9.128\n9.119\n9.119\n9.110\n9.132\n9.130\n9.124\n9.130\n9.135\n9.135\n
+9.119\n9.119\n9.136\n9.126\n9.122\n9.119\n9.123\n9.121\n9.130\n9.121\n9.119\n
+9.106\n9.118\n9.124\n9.121\n9.127\n9.113\n9.118\n9.103\n9.112\n9.110\n9.111\n
+9.108\n9.113\n9.117\n9.111\n9.100\n9.106\n9.109\n9.113\n9.110\n9.101\n9.113\n
+9.111\n9.101\n9.097\n9.102\n9.100\n9.110\n9.110\n9.096\n9.095\n9.090\n9.104\n
+9.097\n9.099\n9.095\n9.096\n9.085\n9.097\n9.098\n9.090\n9.080\n9.093\n9.085\n
+9.075\n9.067\n9.072\n9.062\n9.068\n9.053\n9.051\n9.049\n9.052\n9.059\n9.070\n
+9.058\n9.074\n9.063\n9.057\n9.062\n9.058\n9.049\n9.047\n9.062\n9.052\n9.052\n
+9.044\n9.060\n9.062\n9.055\n9.058\n9.054\n9.044\n9.047\n9.050\n9.048\n9.041\n
+9.055\n9.051\n9.028\n9.030\n9.029\n9.027\n9.016\n9.023\n9.031\n9.042\n9.035\n
+"""
+        ),
+        index_col=None,
+    )
+    mod = ARIMA(
+        endog,
+        order=(18, 0, 39),
+        enforce_stationarity=False,
+        enforce_invertibility=False,
+    )
+    with pytest.raises(ValueError, match="Roots of the autoregressive"):
+        mod.fit(method="hannan_rissanen", low_memory=True, cov_type="none")

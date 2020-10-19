@@ -1051,7 +1051,57 @@ def test_append_results():
                     res1.forecast(10, exog=np.ones(10)))
 
 
-def test_extend_results():
+@pytest.mark.parametrize('trend', ['n', 'c', 'ct'])
+@pytest.mark.parametrize('forecast', [True, False])
+def test_extend_results(trend, forecast):
+    endog = np.arange(200).reshape(100, 2)
+    trend_params = []
+    if trend == 'c':
+        trend_params = [0.1, 0.2]
+    if trend == 'ct':
+        trend_params = [0.1, 0.2, 1., 2.]
+    params = np.r_[trend_params,
+                   0.5, -0.1, 0.0, 0.2,
+                   1., 0., 1.]
+
+    mod1 = varmax.VARMAX(endog, order=(1, 0), trend=trend)
+    res1 = mod1.smooth(params)
+    if forecast:
+        # Call `forecast` to trigger the _set_final_exog and
+        # _set_final_predicted_state context managers
+        res1.forecast()
+
+    mod2 = mod1.clone(endog[:50])
+    res2 = mod2.smooth(params)
+    if forecast:
+        # Call `forecast` to trigger the _set_final_exog and
+        # _set_final_predicted_state context managers
+        res2.forecast()
+    res3 = res2.extend(endog[50:])
+
+    assert_allclose(res3.llf_obs, res1.llf_obs[50:])
+
+    for attr in [
+            'filtered_state', 'filtered_state_cov', 'predicted_state',
+            'predicted_state_cov', 'forecasts', 'forecasts_error',
+            'forecasts_error_cov', 'standardized_forecasts_error',
+            'scaled_smoothed_estimator',
+            'scaled_smoothed_estimator_cov', 'smoothing_error',
+            'smoothed_state',
+            'smoothed_state_cov', 'smoothed_state_autocov',
+            'smoothed_measurement_disturbance',
+            'smoothed_state_disturbance',
+            'smoothed_measurement_disturbance_cov',
+            'smoothed_state_disturbance_cov']:
+        desired = getattr(res1, attr)
+        if desired is not None:
+            desired = desired[..., 50:]
+        assert_allclose(getattr(res3, attr), desired, atol=1e-12)
+
+    assert_allclose(res3.forecast(10), res1.forecast(10))
+
+
+def test_extend_results_exog():
     endog = np.arange(200).reshape(100, 2)
     exog = np.ones(100)
     params = [0.1, 0.2,
@@ -1156,7 +1206,7 @@ def test_vma1_exog():
     mod_vma.ssm.initialize_diffuse()
     res_mva = mod_vma.smooth(vma_params)
 
-    # Smoke test that start_params doesn't raise an error
+    # Smoke test that start_params does not raise an error
     sp = mod_vma.start_params
     assert_equal(len(sp), len(mod_vma.param_names))
 
@@ -1173,3 +1223,60 @@ def test_vma1_exog():
     # Have to ignore first 2 observations due to differences in initialization
     assert_allclose(res_mva.llf_obs[2:],
                     (res_ma1.llf_obs + res_ma2.llf_obs)[2:])
+
+
+def test_param_names_trend():
+    endog = np.zeros((3, 2))
+    base_names = ['L1.y1.y1', 'L1.y2.y1', 'L1.y1.y2', 'L1.y2.y2',
+                  'sqrt.var.y1', 'sqrt.cov.y1.y2', 'sqrt.var.y2']
+    base_params = [0.5, 0, 0, 0.4, 1.0, 0.0, 1.0]
+
+    # No trend
+    mod = varmax.VARMAX(endog, order=(1, 0), trend='n')
+    desired = base_names
+    assert_equal(mod.param_names, desired)
+
+    # Intercept
+    mod = varmax.VARMAX(endog, order=(1, 0), trend=[1])
+    desired = ['intercept.y1', 'intercept.y2'] + base_names
+    assert_equal(mod.param_names, desired)
+    mod.update([1.2, -0.5] + base_params)
+    assert_allclose(mod['state_intercept'], [1.2, -0.5])
+
+    # Intercept + drift
+    mod = varmax.VARMAX(endog, order=(1, 0), trend=[1, 1])
+    desired = (['intercept.y1', 'drift.y1',
+                'intercept.y2', 'drift.y2'] + base_names)
+    assert_equal(mod.param_names, desired)
+    mod.update([1.2, 0, -0.5, 0] + base_params)
+    assert_allclose(mod['state_intercept', 0], 1.2)
+    assert_allclose(mod['state_intercept', 1], -0.5)
+    mod.update([0, 1, 0, 1.1] + base_params)
+    assert_allclose(mod['state_intercept', 0], np.arange(2, 5))
+    assert_allclose(mod['state_intercept', 1], 1.1 * np.arange(2, 5))
+    mod.update([1.2, 1, -0.5, 1.1] + base_params)
+    assert_allclose(mod['state_intercept', 0], 1.2 + np.arange(2, 5))
+    assert_allclose(mod['state_intercept', 1], -0.5 + 1.1 * np.arange(2, 5))
+
+    # Drift only
+    mod = varmax.VARMAX(endog, order=(1, 0), trend=[0, 1])
+    desired = ['drift.y1', 'drift.y2'] + base_names
+    assert_equal(mod.param_names, desired)
+    mod.update([1, 1.1] + base_params)
+    assert_allclose(mod['state_intercept', 0], np.arange(2, 5))
+    assert_allclose(mod['state_intercept', 1], 1.1 * np.arange(2, 5))
+
+    # Intercept + third order
+    mod = varmax.VARMAX(endog, order=(1, 0), trend=[1, 0, 1])
+    desired = (['intercept.y1', 'trend.2.y1',
+                'intercept.y2', 'trend.2.y2'] + base_names)
+    assert_equal(mod.param_names, desired)
+    mod.update([1.2, 0, -0.5, 0] + base_params)
+    assert_allclose(mod['state_intercept', 0], 1.2)
+    assert_allclose(mod['state_intercept', 1], -0.5)
+    mod.update([0, 1, 0, 1.1] + base_params)
+    assert_allclose(mod['state_intercept', 0], np.arange(2, 5)**2)
+    assert_allclose(mod['state_intercept', 1], 1.1 * np.arange(2, 5)**2)
+    mod.update([1.2, 1, -0.5, 1.1] + base_params)
+    assert_allclose(mod['state_intercept', 0], 1.2 + np.arange(2, 5)**2)
+    assert_allclose(mod['state_intercept', 1], -0.5 + 1.1 * np.arange(2, 5)**2)

@@ -4,6 +4,7 @@ Utility functions models code
 import numpy as np
 import numpy.lib.recfunctions as nprf
 import pandas as pd
+import scipy.linalg
 
 from statsmodels.compat.python import lzip, lmap
 
@@ -73,6 +74,10 @@ def drop_missing(Y, X=None, axis=1):
 def categorical(data, col=None, dictnames=False, drop=False):
     """
     Construct a dummy matrix from categorical variables
+
+    .. deprecated:: 0.12
+
+       Use pandas.get_dummies instead.
 
     Parameters
     ----------
@@ -149,6 +154,13 @@ def categorical(data, col=None, dictnames=False, drop=False):
 
     >>> design2 = sm.tools.categorical(struct_ar, col='str_instr', drop=True)
     """
+    import warnings
+    warnings.warn(
+        "categorical is deprecated. Use pandas Categorical to represent "
+        "categorical data and can get_dummies to construct dummy arrays. "
+        "It will be removed after release 0.13.",
+        FutureWarning
+    )
     # TODO: add a NameValidator function
     if isinstance(col, (list, tuple)):
         if len(col) == 1:
@@ -317,7 +329,8 @@ def add_constant(data, prepend=True, has_constant='skip'):
 
     # Special case for NumPy
     x = np.asanyarray(data)
-    if x.ndim == 1:
+    ndim = x.ndim
+    if ndim == 1:
         x = x[:, None]
     elif x.ndim > 2:
         raise ValueError('Only implemented for 2-dimensional arrays')
@@ -328,7 +341,12 @@ def add_constant(data, prepend=True, has_constant='skip'):
         if has_constant == 'skip':
             return x
         elif has_constant == 'raise':
-            raise ValueError("data already contains a constant")
+            if ndim == 1:
+                raise ValueError("data is constant.")
+            else:
+                columns = np.arange(x.shape[1])
+                cols = ",".join([str(c) for c in columns[is_nonzero_const]])
+                raise ValueError(f"Column(s) {cols} are constant.")
 
     x = [np.ones(x.shape[0]), x]
     x = x if prepend else x[::-1]
@@ -377,16 +395,16 @@ def isestimable(c, d):
     return True
 
 
-def pinv_extended(X, rcond=1e-15):
+def pinv_extended(x, rcond=1e-15):
     """
     Return the pinv of an array X as well as the singular values
     used in computation.
 
     Code adapted from numpy.
     """
-    X = np.asarray(X)
-    X = X.conjugate()
-    u, s, vt = np.linalg.svd(X, 0)
+    x = np.asarray(x)
+    x = x.conjugate()
+    u, s, vt = np.linalg.svd(x, False)
     s_orig = np.copy(s)
     m = u.shape[0]
     n = vt.shape[1]
@@ -627,3 +645,47 @@ def _ensure_2d(x, ndarray=False):
         return np.asarray(x)[:, None], name
     else:
         return pd.DataFrame(x), name
+
+
+def matrix_rank(m, tol=None, method="qr"):
+    """
+    Matrix rank calculation using QR or SVD
+
+    Parameters
+    ----------
+    m : array_like
+        A 2-d array-like object to test
+    tol : float, optional
+        The tolerance to use when testing the matrix rank. If not provided
+        an appropriate value is selected.
+    method : {"ip", "qr", "svd"}
+        The method used. "ip" uses the inner-product of a normalized version
+        of m and then computes the rank using NumPy's matrix_rank.
+        "qr" uses a QR decomposition and is the default. "svd" defers to
+        NumPy's matrix_rank.
+
+    Returns
+    -------
+    int
+        The rank of m.
+
+    Notes
+    -----
+    When using a QR factorization, the rank is determined by the number of
+    elements on the leading diagonal of the R matrix that are above tol
+    in absolute value.
+    """
+    m = array_like(m, "m", ndim=2)
+    if method == "ip":
+        m = m[:, np.any(m != 0, axis=0)]
+        m = m / np.sqrt((m ** 2).sum(0))
+        m = m.T @ m
+        return np.linalg.matrix_rank(m, tol=tol, hermitian=True)
+    elif method == "qr":
+        r, = scipy.linalg.qr(m, mode="r")
+        abs_diag = np.abs(np.diag(r))
+        if tol is None:
+            tol = abs_diag[0] * m.shape[1] * np.finfo(float).eps
+        return int((abs_diag > tol).sum())
+    else:
+        return np.linalg.matrix_rank(m, tol=tol)

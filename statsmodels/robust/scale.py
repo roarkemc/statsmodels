@@ -7,16 +7,21 @@ PJ Huber.  'Robust Statistics' John Wiley and Sons, Inc., New York, 1981.
 
 R Venables, B Ripley. 'Modern Applied Statistics in S'
     Springer, New York, 2002.
+
+C Croux, PJ Rousseeuw, 'Time-efficient algorithms for two highly robust
+estimators of scale' Computational statistics. Physica, Heidelberg, 1992.
 """
 import numpy as np
 from scipy.stats import norm as Gaussian
-from . import norms
+
 from statsmodels.tools import tools
 from statsmodels.tools.validation import array_like, float_like
 
+from . import norms
+from ._qn import _qn
 
-def mad(a, c=Gaussian.ppf(3/4.), axis=0, center=np.median):
-    # c \approx .6745
+
+def mad(a, c=Gaussian.ppf(3 / 4.0), axis=0, center=np.median):
     """
     The Median Absolute Deviation along given axis of an array
 
@@ -26,7 +31,7 @@ def mad(a, c=Gaussian.ppf(3/4.), axis=0, center=np.median):
         Input array.
     c : float, optional
         The normalization constant.  Defined as scipy.stats.norm.ppf(3/4.),
-        which is approximately .6745.
+        which is approximately 0.6745.
     axis : int, optional
         The default is 0. Can also be None.
     center : callable or float
@@ -39,14 +44,125 @@ def mad(a, c=Gaussian.ppf(3/4.), axis=0, center=np.median):
     mad : float
         `mad` = median(abs(`a` - center))/`c`
     """
-    a = array_like(a, 'a', ndim=None)
-    c = float_like(c, 'c')
-    if callable(center) and a.size:
-        center = np.apply_over_axes(center, a, axis)
+    a = array_like(a, "a", ndim=None)
+    c = float_like(c, "c")
+    if not a.size:
+        center_val = 0.0
+    elif callable(center):
+        if axis is not None:
+            center_val = np.apply_over_axes(center, a, axis)
+        else:
+            center_val = center(a.ravel())
     else:
-        center = 0.0
+        center_val = float_like(center, "center")
 
-    return np.median((np.abs(a-center)) / c, axis=axis)
+    return np.median((np.abs(a - center_val)) / c, axis=axis)
+
+
+def iqr(a, c=Gaussian.ppf(3 / 4) - Gaussian.ppf(1 / 4), axis=0):
+    """
+    The normalized interquartile range along given axis of an array
+
+    Parameters
+    ----------
+    a : array_like
+        Input array.
+    c : float, optional
+        The normalization constant, used to get consistent estimates of the
+        standard deviation at the normal distribution.  Defined as
+        scipy.stats.norm.ppf(3/4.) - scipy.stats.norm.ppf(1/4.), which is
+        approximately 1.349.
+    axis : int, optional
+        The default is 0. Can also be None.
+
+    Returns
+    -------
+    The normalized interquartile range
+    """
+    a = array_like(a, "a", ndim=None)
+    c = float_like(c, "c")
+
+    if a.ndim == 0:
+        raise ValueError("a should have at least one dimension")
+    elif a.size == 0:
+        return np.nan
+    else:
+        quantiles = np.quantile(a, [0.25, 0.75], axis=axis)
+        return np.squeeze(np.diff(quantiles, axis=0) / c)
+
+
+def qn_scale(a, c=1 / (np.sqrt(2) * Gaussian.ppf(5 / 8)), axis=0):
+    """
+    Computes the Qn robust estimator of scale
+
+    The Qn scale estimator is a more efficient alternative to the MAD.
+    The Qn scale estimator of an array a of length n is defined as
+    c * {abs(a[i] - a[j]): i<j}_(k), for k equal to [n/2] + 1 choose 2. Thus,
+    the Qn estimator is the k-th order statistic of the absolute differences
+    of the array. The optional constant is used to normalize the estimate
+    as explained below. The implementation follows the algorithm described
+    in Croux and Rousseeuw (1992).
+
+    Parameters
+    ----------
+    a : array_like
+        Input array.
+    c : float, optional
+        The normalization constant. The default value is used to get consistent
+        estimates of the standard deviation at the normal distribution.
+    axis : int, optional
+        The default is 0.
+
+    Returns
+    -------
+    {float, ndarray}
+        The Qn robust estimator of scale
+    """
+    a = array_like(
+        a, "a", ndim=None, dtype=np.float64, contiguous=True, order="C"
+    )
+    c = float_like(c, "c")
+    if a.ndim == 0:
+        raise ValueError("a should have at least one dimension")
+    elif a.size == 0:
+        return np.nan
+    else:
+        out = np.apply_along_axis(_qn, axis=axis, arr=a, c=c)
+        if out.ndim == 0:
+            return float(out)
+        return out
+
+
+def _qn_naive(a, c=1 / (np.sqrt(2) * Gaussian.ppf(5 / 8))):
+    """
+    A naive implementation of the Qn robust estimator of scale, used solely
+    to test the faster, more involved one
+
+    Parameters
+    ----------
+    a : array_like
+        Input array.
+    c : float, optional
+        The normalization constant, used to get consistent estimates of the
+        standard deviation at the normal distribution.  Defined as
+        1/(np.sqrt(2) * scipy.stats.norm.ppf(5/8)), which is 2.219144.
+
+    Returns
+    -------
+    The Qn robust estimator of scale
+    """
+    a = np.squeeze(a)
+    n = a.shape[0]
+    if a.size == 0:
+        return np.nan
+    else:
+        h = int(n // 2 + 1)
+        k = int(h * (h - 1) / 2)
+        idx = np.triu_indices(n, k=1)
+        diffs = np.abs(a[idx[0]] - a[idx[1]])
+        output = np.partition(diffs, kth=k - 1)[k - 1]
+        output = c * output
+        return output
 
 
 class Huber(object):
@@ -86,7 +202,7 @@ class Huber(object):
         self.tol = tol
         self.norm = norm
         tmp = 2 * Gaussian.cdf(c) - 1
-        self.gamma = tmp + c**2 * (1 - tmp) - 2 * c * Gaussian.pdf(c)
+        self.gamma = tmp + c ** 2 * (1 - tmp) - 2 * c * Gaussian.pdf(c)
 
     def __call__(self, a, mu=None, initscale=None, axis=0):
         """
@@ -151,35 +267,44 @@ class Huber(object):
                     # This is a one-step fixed-point estimator
                     # if self.norm == norms.HuberT
                     # It should be faster than using norms.HuberT
-                    nmu = np.clip(a, mu-self.c*scale,
-                                  mu+self.c*scale).sum(axis) / a.shape[axis]
+                    nmu = (
+                        np.clip(
+                            a, mu - self.c * scale, mu + self.c * scale
+                        ).sum(axis)
+                        / a.shape[axis]
+                    )
                 else:
-                    nmu = norms.estimate_location(a, scale, self.norm, axis,
-                                                  mu, self.maxiter, self.tol)
+                    nmu = norms.estimate_location(
+                        a, scale, self.norm, axis, mu, self.maxiter, self.tol
+                    )
             else:
                 # Effectively, do nothing
                 nmu = mu.squeeze()
             nmu = tools.unsqueeze(nmu, axis, a.shape)
 
-            subset = np.less_equal(np.abs((a - mu)/scale), self.c)
+            subset = np.less_equal(np.abs((a - mu) / scale), self.c)
             card = subset.sum(axis)
 
-            scale_num = np.sum(subset * (a - nmu)**2, axis)
-            scale_denom = (n * self.gamma - (a.shape[axis] - card) * self.c**2)
+            scale_num = np.sum(subset * (a - nmu) ** 2, axis)
+            scale_denom = n * self.gamma - (a.shape[axis] - card) * self.c ** 2
             nscale = np.sqrt(scale_num / scale_denom)
             nscale = tools.unsqueeze(nscale, axis, a.shape)
 
-            test1 = np.alltrue(np.less_equal(np.abs(scale - nscale),
-                                             nscale * self.tol))
+            test1 = np.alltrue(
+                np.less_equal(np.abs(scale - nscale), nscale * self.tol)
+            )
             test2 = np.alltrue(
-                np.less_equal(np.abs(mu - nmu), nscale * self.tol))
+                np.less_equal(np.abs(mu - nmu), nscale * self.tol)
+            )
             if not (test1 and test2):
                 mu = nmu
                 scale = nscale
             else:
                 return nmu.squeeze(), nscale.squeeze()
-        raise ValueError('joint estimation of location and scale failed '
-                         'to converge in %d iterations' % self.maxiter)
+        raise ValueError(
+            "joint estimation of location and scale failed "
+            "to converge in %d iterations" % self.maxiter
+        )
 
 
 huber = Huber()
@@ -220,16 +345,22 @@ class HuberScale(object):
     and the Huber constant h = (n-p)/n*(d**2 + (1-d**2)*\
             scipy.stats.norm.cdf(d) - .5 - d*sqrt(2*pi)*exp(-0.5*d**2)
     """
+
     def __init__(self, d=2.5, tol=1e-08, maxiter=30):
         self.d = d
         self.tol = tol
         self.maxiter = maxiter
 
     def __call__(self, df_resid, nobs, resid):
-        h = df_resid / nobs * (
-            self.d ** 2
-            + (1 - self.d ** 2) * Gaussian.cdf(self.d)
-            - .5 - self.d / (np.sqrt(2 * np.pi)) * np.exp(-.5 * self.d ** 2)
+        h = (
+            df_resid
+            / nobs
+            * (
+                self.d ** 2
+                + (1 - self.d ** 2) * Gaussian.cdf(self.d)
+                - 0.5
+                - self.d / (np.sqrt(2 * np.pi)) * np.exp(-0.5 * self.d ** 2)
+            )
         )
         s = mad(resid)
 
@@ -237,15 +368,22 @@ class HuberScale(object):
             return np.less(np.abs(resid / x), self.d)
 
         def chi(s):
-            return subset(s) * (resid / s) ** 2 / 2 + (1 - subset(s)) * \
-                   (self.d ** 2 / 2)
+            return subset(s) * (resid / s) ** 2 / 2 + (1 - subset(s)) * (
+                self.d ** 2 / 2
+            )
 
         scalehist = [np.inf, s]
         niter = 1
-        while (np.abs(scalehist[niter - 1] - scalehist[niter]) > self.tol
-               and niter < self.maxiter):
-            nscale = np.sqrt(1 / (nobs * h) * np.sum(chi(scalehist[-1])) *
-                             scalehist[-1] ** 2)
+        while (
+            np.abs(scalehist[niter - 1] - scalehist[niter]) > self.tol
+            and niter < self.maxiter
+        ):
+            nscale = np.sqrt(
+                1
+                / (nobs * h)
+                * np.sum(chi(scalehist[-1]))
+                * scalehist[-1] ** 2
+            )
             scalehist.append(nscale)
             niter += 1
             # TODO: raise on convergence failure?

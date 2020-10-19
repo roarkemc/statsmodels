@@ -20,7 +20,7 @@ statsmodels supports Python 3.6, 3.7 and 3.8.
 Anaconda
 --------
 statsmodels is available through conda provided by
-`Anaconda <https://www.continuum.io/downloads>`__. The latest release can
+`Anaconda <https://www.anaconda.com/products/individual#Downloads>`__. The latest release can
 be installed using:
 
 .. code-block:: bash
@@ -132,7 +132,7 @@ The current minimum dependencies are:
 
 * `Python <https://www.python.org>`__ >= 3.6
 * `NumPy <https://www.scipy.org/>`__ >= 1.15
-* `SciPy <https://www.scipy.org/>`__ >= 1.1
+* `SciPy <https://www.scipy.org/>`__ >= 1.2
 * `Pandas <https://pandas.pydata.org/>`__ >= 0.23
 * `Patsy <https://patsy.readthedocs.io/en/latest/>`__ >= 0.5.1
 
@@ -160,6 +160,6 @@ Optional Dependencies
   the test suite.
 * `IPython <https://ipython.org>`__ >= 5.0 is required to build the
   docs locally or to use the notebooks.
-* `joblib <http://pythonhosted.org/joblib/>`__ >= 0.9 can be used to accelerate distributed
+* `joblib <https://joblib.readthedocs.io/>`__ >= 0.9 can be used to accelerate distributed
   estimation for certain models.
 * `jupyter <https://jupyter.org/>`__ is needed to run the notebooks.

@@ -9,6 +9,7 @@ License: BSD-3
 
 import numpy as np
 from scipy import stats
+import pandas as pd
 
 
 # this is similar to ContrastResults after t_test, copied and adjusted
@@ -86,13 +87,11 @@ class PredictionResults(object):
         upper = self.predicted_mean + q * se
         return np.column_stack((lower, upper))
 
-    def summary_frame(self, what='all', alpha=0.05):
+    def summary_frame(self, alpha=0.05):
         # TODO: finish and cleanup
-        import pandas as pd
-        from collections import OrderedDict
         ci_obs = self.conf_int(alpha=alpha, obs=True)  # need to split
         ci_mean = self.conf_int(alpha=alpha, obs=False)
-        to_include = OrderedDict()
+        to_include = {}
         to_include['mean'] = self.predicted_mean
         to_include['mean_se'] = self.se_mean
         to_include['mean_ci_lower'] = ci_mean[:, 0]
@@ -101,7 +100,6 @@ class PredictionResults(object):
         to_include['obs_ci_upper'] = ci_obs[:, 1]
 
         self.table = to_include
-        # OrderedDict does not work to preserve sequence
         # pandas dict does not handle 2d_array
         # data = np.column_stack(list(to_include.values()))
         # names = ....
@@ -147,6 +145,9 @@ def get_prediction(self, exog=None, transform=True, weights=None,
     # prepare exog and row_labels, based on base Results.predict
     if transform and hasattr(self.model, 'formula') and exog is not None:
         from patsy import dmatrix
+        if isinstance(exog, pd.Series):
+            # GH-6509
+            exog = pd.DataFrame(exog)
         exog = dmatrix(self.model.data.design_info, exog)
 
     if exog is not None:
@@ -156,9 +157,12 @@ def get_prediction(self, exog=None, transform=True, weights=None,
                 row_labels = None
 
         exog = np.asarray(exog)
-        if exog.ndim == 1 and (self.model.exog.ndim == 1 or
-                               self.model.exog.shape[1] == 1):
-            exog = exog[:, None]
+        if exog.ndim == 1:
+            # Params informs whether a row or column vector
+            if self.params.shape[0] > 1:
+                exog = exog[None, :]
+            else:
+                exog = exog[:, None]
         exog = np.atleast_2d(exog)  # needed in count model shape[1]
     else:
         exog = self.model.exog

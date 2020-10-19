@@ -8,7 +8,6 @@ License: Simplified-BSD
 """
 
 from warnings import warn
-from collections import OrderedDict
 
 import numpy as np
 
@@ -639,11 +638,11 @@ class UnobservedComponents(MLEModel):
         Setup the structural time series representation
         """
         # Initialize the ordered sets of parameters
-        self.parameters = OrderedDict()
-        self.parameters_obs_intercept = OrderedDict()
-        self.parameters_obs_cov = OrderedDict()
-        self.parameters_transition = OrderedDict()
-        self.parameters_state_cov = OrderedDict()
+        self.parameters = {}
+        self.parameters_obs_intercept = {}
+        self.parameters_obs_cov = {}
+        self.parameters_transition = {}
+        self.parameters_state_cov = {}
 
         # Initialize the fixed components of the state space matrices,
         i = 0  # state offset
@@ -764,7 +763,7 @@ class UnobservedComponents(MLEModel):
         # Some of the variances may be tied together (repeated parameter usage)
         # Use list() for compatibility with python 3.5
         param_keys = list(self.parameters_state_cov.keys())
-        self._var_repetitions = np.ones(self.k_state_cov, dtype=np.int)
+        self._var_repetitions = np.ones(self.k_state_cov, dtype=int)
         if self.freq_seasonal:
             for ix, is_stochastic in enumerate(self.stochastic_freq_seasonal):
                 if is_stochastic:
@@ -1567,7 +1566,7 @@ class UnobservedComponentsResults(MLEResults):
         seasonal : bool, optional
             Whether or not to plot the seasonal component, if applicable.
             Default is True.
-        freq_seasonal: bool, optional
+        freq_seasonal : bool, optional
             Whether or not to plot the frequency domain seasonal component(s),
             if applicable. Default is True.
         cycle : bool, optional
@@ -1630,7 +1629,7 @@ class UnobservedComponentsResults(MLEResults):
             [('cycle', cycle and spec.cycle),
              ('autoregressive', autoregressive and spec.autoregressive)])
 
-        components = OrderedDict(comp)
+        components = dict(comp)
 
         llb = self.filter_results.loglikelihood_burn
 

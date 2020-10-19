@@ -6,8 +6,6 @@ License: Simplified-BSD
 """
 from __future__ import division, absolute_import, print_function
 
-from collections import OrderedDict
-
 import numpy as np
 import pytest
 
@@ -220,8 +218,8 @@ def test_dynamic_factor_invalid():
     with pytest.raises(ValueError):
         with mod3.fix_params({'L1.f1.f1': 0.3}):
             pass
-    constraints = OrderedDict([('L1.f1.f1', 0.3), ('L1.f2.f1', 0.1),
-                               ('L1.f1.f2', -0.05), ('L1.f2.f2', 0.1)])
+    constraints = dict([('L1.f1.f1', 0.3), ('L1.f2.f1', 0.1),
+                        ('L1.f1.f2', -0.05), ('L1.f2.f2', 0.1)])
     with mod3.fix_params(constraints):
         assert_(mod3._has_fixed_params)
         assert_equal(mod3._fixed_params, constraints)
@@ -350,9 +348,9 @@ def test_varmax_invalid():
     with pytest.raises(ValueError):
         with mod4.fix_params({'L1.cpi.cpi': 0.3}):
             pass
-    constraints = OrderedDict([('L1.cpi.cpi', 0.3), ('L1.realgdp.cpi', 0.1),
-                               ('L1.cpi.realgdp', -0.05),
-                               ('L1.realgdp.realgdp', 0.1)])
+    constraints = dict([('L1.cpi.cpi', 0.3), ('L1.realgdp.cpi', 0.1),
+                        ('L1.cpi.realgdp', -0.05),
+                        ('L1.realgdp.realgdp', 0.1)])
     with mod4.fix_params(constraints):
         assert_(mod4._has_fixed_params)
         assert_equal(mod4._fixed_params, constraints)
@@ -464,8 +462,10 @@ def check_results(res1, res2, check_lutkepohl=False, check_params=True):
     assert_allclose(res2.test_heteroskedasticity('breakvar'),
                     res1.test_heteroskedasticity('breakvar'))
 
-    assert_allclose(res2.test_serial_correlation('ljungbox'),
-                    res1.test_serial_correlation('ljungbox'))
+    with pytest.warns(FutureWarning):
+        actual = res2.test_serial_correlation('ljungbox')
+        desired = res1.test_serial_correlation('ljungbox')
+    assert_allclose(actual, desired)
 
 
 def test_sarimax_nonconsecutive():

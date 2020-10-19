@@ -26,7 +26,6 @@ missing:
   - specification tests against nonparametric alternatives
 """
 from statsmodels.compat.pandas import deprecate_kwarg
-from statsmodels.compat.python import iteritems
 
 from collections.abc import Iterable
 
@@ -53,17 +52,6 @@ NESTED_ERROR = """\
 The exog in results_x and in results_z are nested. {test} requires \
 that models are non-nested.
 """
-
-
-# get the old signature back so the examples work
-def unitroot_adf(x, maxlag=None, trendorder=0, autolag='AIC', store=False):
-    import warnings
-    warnings.warn("unitroot_adf is deprecated and will be removed after 0.11.",
-                  FutureWarning)
-    from statsmodels.tsa.stattools import adfuller
-    trendorder = {0: 'nc', 1: 'c', 2: 'ct', 3: 'ctt'}[trendorder]
-    return adfuller(x, maxlag=maxlag, regression=trendorder, autolag=autolag,
-                    store=store, regresults=False)
 
 
 def _check_nested_exog(small, large):
@@ -396,7 +384,7 @@ def compare_encompassing(results_x, results_z, cov_type="nonrobust",
 
 
 def acorr_ljungbox(x, lags=None, boxpierce=False, model_df=0, period=None,
-                   return_df=None):
+                   return_df=None, auto_lag=False):
     """
     Ljung-Box test of autocorrelation in residuals.
 
@@ -434,6 +422,9 @@ def acorr_ljungbox(x, lags=None, boxpierce=False, model_df=0, period=None,
         After 0.12, this will become the only return method.  Set to True
         to return the DataFrame or False to continue returning the 2 - 4
         output. If None (the default), a warning is raised.
+    auto_lag : bool, default False
+        Flag indicating whether to automatically determine the optimal lag
+        length based on threshold of maximum correlation value.
 
     Returns
     -------
@@ -467,6 +458,9 @@ def acorr_ljungbox(x, lags=None, boxpierce=False, model_df=0, period=None,
     References
     ----------
     .. [*] Green, W. "Econometric Analysis," 5th ed., Pearson, 2003.
+    .. [*] J. Carlos Escanciano, Ignacio N. Lobato
+          "An automatic Portmanteau test for serial correlation".,
+          Volume 151, 2009.
 
     Examples
     --------
@@ -477,6 +471,25 @@ def acorr_ljungbox(x, lags=None, boxpierce=False, model_df=0, period=None,
            lb_stat     lb_pvalue
     10  214.106992  1.827374e-40
     """
+    def get_optimal_length(threshold_metric, threshold, maxlag, func):
+        optimal_lag = 0
+        least_penalised = 0
+
+        for lags in range(1, maxlag + 1):
+            if (threshold_metric <= threshold):
+                penalty = lags * np.log(nobs)
+            else:
+                penalty = 2 * lags
+
+            test_statistic = func(lags)
+            penalised = test_statistic - penalty
+            if (penalised > least_penalised):
+                optimal_lag = lags
+                least_penalised = penalised
+
+        return optimal_lag
+    # Avoid cyclic import
+    from statsmodels.tsa.stattools import acf
     x = array_like(x, "x")
     period = int_like(period, "period", optional=True)
     return_df = bool_like(return_df, "return_df", optional=True)
@@ -486,8 +499,32 @@ def acorr_ljungbox(x, lags=None, boxpierce=False, model_df=0, period=None,
     if model_df < 0:
         raise ValueError("model_df must be >= 0")
     nobs = x.shape[0]
-    if period is not None:
-        lags = np.arange(1, min(nobs // 5, 2 * period) + 1, dtype=np.int)
+    if auto_lag:
+        maxlag = nobs - 1
+
+        # Compute threshold metrics
+        sacf = acf(x, nlags=maxlag, fft=False)
+        sacf2 = sacf[1:maxlag + 1] ** 2 / (nobs - np.arange(1, maxlag + 1))
+        q = 2.4
+        threshold = np.sqrt(q * np.log(nobs))
+        threshold_metric = max(np.abs(sacf)) * np.sqrt(nobs)
+
+        if not boxpierce:
+            lags = get_optimal_length(
+                threshold_metric,
+                threshold, maxlag,
+                lambda p: nobs * (nobs + 2) * np.cumsum(sacf2)[p - 1])
+        else:
+            lags = get_optimal_length(
+                threshold_metric,
+                threshold,
+                maxlag,
+                lambda p: nobs * np.cumsum(sacf[1:maxlag + 1] ** 2)[p - 1])
+
+        lags = int_like(lags, "lags")
+        lags = np.arange(1, lags + 1)
+    elif period is not None:
+        lags = np.arange(1, min(nobs // 5, 2 * period) + 1, dtype=int)
     elif lags is None:
         # TODO: Switch to min(10, nobs//5) after 0.12
         import warnings
@@ -495,16 +532,14 @@ def acorr_ljungbox(x, lags=None, boxpierce=False, model_df=0, period=None,
                       "this value will become min(10, nobs//5). Directly set"
                       "lags to silence this warning.", FutureWarning)
         # Future
-        # lags = np.arange(1, min(nobs // 5, 10) + 1, dtype=np.int)
-        lags = np.arange(1, min((nobs // 2 - 2), 40) + 1, dtype=np.int)
+        # lags = np.arange(1, min(nobs // 5, 10) + 1, dtype=int)
+        lags = np.arange(1, min((nobs // 2 - 2), 40) + 1, dtype=int)
     elif not isinstance(lags, Iterable):
         lags = int_like(lags, "lags")
         lags = np.arange(1, lags + 1)
     lags = array_like(lags, "lags", dtype="int")
     maxlag = lags.max()
 
-    # Avoid cyclic import
-    from statsmodels.tsa.stattools import acf
     # normalize by nobs not (nobs-nlags)
     # SS: unbiased=False is default now
     sacf = acf(x, nlags=maxlag, fft=False)
@@ -651,9 +686,9 @@ def acorr_lm(resid, nlags=None, autolag="AIC", store=False, *, period=None,
             results[mlag] = OLS(xshort, xdall[:, :mlag + 1]).fit()
 
         if autolag.lower() == "aic":
-            bestic, icbestlag = min((v.aic, k) for k, v in iteritems(results))
+            bestic, icbestlag = min((v.aic, k) for k, v in results.items())
         elif autolag.lower() == "bic":
-            icbest, icbestlag = min((v.bic, k) for k, v in iteritems(results))
+            icbest, icbestlag = min((v.bic, k) for k, v in results.items())
         else:
             raise ValueError("autolag can only be None, \"AIC\" or \"BIC\"")
 
@@ -1214,10 +1249,10 @@ def linear_reset(res, power=3, test_type="fitted", use_f=False,
     if isinstance(power, int):
         if power < 2:
             raise ValueError("power must be >= 2")
-        power = np.arange(2, power + 1, dtype=np.int)
+        power = np.arange(2, power + 1, dtype=int)
     else:
         try:
-            power = np.array(power, dtype=np.int)
+            power = np.array(power, dtype=int)
         except Exception:
             raise ValueError("power must be an integer or list of integers")
         if power.ndim != 1 or len(set(power)) != power.shape[0] or \
@@ -1255,7 +1290,7 @@ def linear_reset(res, power=3, test_type="fitted", use_f=False,
     return res.wald_test(r_mat, use_f=use_f)
 
 
-def linear_harvey_collier(res, order_by=None):
+def linear_harvey_collier(res, order_by=None, skip=None):
     """
     Harvey Collier test for linearity
 
@@ -1269,6 +1304,9 @@ def linear_harvey_collier(res, order_by=None):
         Integer array specifying the order of the residuals. If not provided,
         the order of the residuals is not changed. If provided, must have
         the same number of observations as the endogenous variable.
+    skip : int, default None
+        The number of observations to use for initial OLS, if None then skip is
+        set equal to the number of regressors (columns in exog).
 
     Returns
     -------
@@ -1276,6 +1314,11 @@ def linear_harvey_collier(res, order_by=None):
         The test statistic, based on ttest_1sample.
     pvalue : float
         The pvalue of the test.
+
+    See Also
+    --------
+    statsmodels.stats.diadnostic.recursive_olsresiduals
+        Recursive OLS residual calculation used in the test.
 
     Notes
     -----
@@ -1285,7 +1328,7 @@ def linear_harvey_collier(res, order_by=None):
     # I think this has different ddof than
     # B.H. Baltagi, Econometrics, 2011, chapter 8
     # but it matches Gretl and R:lmtest, pvalue at decimal=13
-    rr = recursive_olsresiduals(res, skip=3, alpha=0.95, order_by=order_by)
+    rr = recursive_olsresiduals(res, skip=skip, alpha=0.95, order_by=order_by)
 
     return stats.ttest_1samp(rr[3][3:], 0)
 
@@ -1611,8 +1654,14 @@ def recursive_olsresiduals(res, skip=None, lamda=0.0, alpha=0.95,
     rvarraw = np.nan * np.zeros(nobs)
 
     x0 = x[:skip]
+    if np.linalg.matrix_rank(x0) < x0.shape[1]:
+        err_msg = """\
+"The initial regressor matrix, x[:skip], issingular. You must use a value of
+skip large enough to ensure that the first OLS estimator is well-defined.
+"""
+        raise ValueError(err_msg)
     y0 = y[:skip]
-    # add Ridge to start (not in jplv
+    # add Ridge to start (not in jplv)
     xtxi = np.linalg.inv(np.dot(x0.T, x0) + lamda * np.eye(nvars))
     xty = np.dot(x0.T, y0)  # xi * y   #np.dot(xi, y)
     beta = np.dot(xtxi, xty)

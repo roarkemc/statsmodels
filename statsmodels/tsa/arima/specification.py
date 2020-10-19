@@ -81,7 +81,7 @@ class SARIMAXSpecification(object):
         out of the likelihood. This reduces the number of parameters by one.
         This is only applicable when considering estimation by numerical
         maximum likelihood.
-    dates : array-like of datetime, optional
+    dates : array_like of datetime, optional
         If no index is given by `endog` or `exog`, an array-like object of
         datetime objects can be provided.
     freq : str, optional
@@ -214,7 +214,7 @@ class SARIMAXSpecification(object):
                  seasonal_ma_order=None, seasonal_periods=None, trend=None,
                  enforce_stationarity=None, enforce_invertibility=None,
                  concentrate_scale=None, trend_offset=1, dates=None, freq=None,
-                 missing='none'):
+                 missing='none', validate_specification=True):
 
         # Basic parameters
         self.enforce_stationarity = enforce_stationarity
@@ -271,17 +271,20 @@ class SARIMAXSpecification(object):
                              ' with four elements.')
 
         # Validate differencing parameters
-        if order[1] < 0:
-            raise ValueError('Cannot specify negative differencing.')
-        if order[1] != int(order[1]):
-            raise ValueError('Cannot specify fractional differencing.')
-        if seasonal_order[1] < 0:
-            raise ValueError('Cannot specify negative seasonal differencing.')
-        if seasonal_order[1] != int(seasonal_order[1]):
-            raise ValueError('Cannot specify fractional seasonal'
-                             ' differencing.')
-        if seasonal_order[3] < 0:
-            raise ValueError('Cannot specify negative seasonal periodicity.')
+        if validate_specification:
+            if order[1] < 0:
+                raise ValueError('Cannot specify negative differencing.')
+            if order[1] != int(order[1]):
+                raise ValueError('Cannot specify fractional differencing.')
+            if seasonal_order[1] < 0:
+                raise ValueError('Cannot specify negative seasonal'
+                                 ' differencing.')
+            if seasonal_order[1] != int(seasonal_order[1]):
+                raise ValueError('Cannot specify fractional seasonal'
+                                 ' differencing.')
+            if seasonal_order[3] < 0:
+                raise ValueError('Cannot specify negative seasonal'
+                                 ' periodicity.')
 
         # Standardize to integers or lists of integers
         order = (
@@ -295,12 +298,15 @@ class SARIMAXSpecification(object):
             int(seasonal_order[3]))
 
         # Validate seasonals
-        if seasonal_order[3] == 1:
-            raise ValueError('Seasonal periodicity must be greater than 1.')
-        if ((seasonal_order[0] != 0 or seasonal_order[1] != 0 or
-                seasonal_order[2] != 0) and seasonal_order[3] == 0):
-            raise ValueError('Must include nonzero seasonal periodicity if'
-                             ' including seasonal AR, MA, or differencing.')
+        if validate_specification:
+            if seasonal_order[3] == 1:
+                raise ValueError('Seasonal periodicity must be greater'
+                                 ' than 1.')
+            if ((seasonal_order[0] != 0 or seasonal_order[1] != 0 or
+                    seasonal_order[2] != 0) and seasonal_order[3] == 0):
+                raise ValueError('Must include nonzero seasonal periodicity if'
+                                 ' including seasonal AR, MA, or'
+                                 ' differencing.')
 
         # Basic order
         self.order = order
@@ -353,7 +359,7 @@ class SARIMAXSpecification(object):
         seasonal_ar_lags = set(np.array(self.seasonal_ar_lags)
                                * self.seasonal_periods)
         duplicate_ar_lags = ar_lags.intersection(seasonal_ar_lags)
-        if len(duplicate_ar_lags) > 0:
+        if validate_specification and len(duplicate_ar_lags) > 0:
             raise ValueError('Invalid model: autoregressive lag(s) %s are'
                              ' in both the seasonal and non-seasonal'
                              ' autoregressive components.'
@@ -363,14 +369,33 @@ class SARIMAXSpecification(object):
         seasonal_ma_lags = set(np.array(self.seasonal_ma_lags)
                                * self.seasonal_periods)
         duplicate_ma_lags = ma_lags.intersection(seasonal_ma_lags)
-        if len(duplicate_ma_lags) > 0:
+        if validate_specification and len(duplicate_ma_lags) > 0:
             raise ValueError('Invalid model: moving average lag(s) %s are'
                              ' in both the seasonal and non-seasonal'
                              ' moving average components.'
                              % duplicate_ma_lags)
 
         # Handle trend
+        self.trend = trend
         self.trend_poly, _ = prepare_trend_spec(trend)
+
+        # Check for a constant column in the provided exog
+        exog_is_pandas = _is_using_pandas(exog, None)
+        if (validate_specification and exog is not None and
+                len(self.trend_poly) > 0 and self.trend_poly[0] == 1):
+            # Figure out if we have any constant columns
+            x = np.asanyarray(exog)
+            ptp0 = np.ptp(x, axis=0)
+            col_is_const = ptp0 == 0
+            nz_const = col_is_const & (x[0] != 0)
+            col_const = nz_const
+
+            # If we already have a constant column, raise an error
+            if np.any(col_const):
+                raise ValueError('A constant trend was included in the model'
+                                 ' specification, but the `exog` data already'
+                                 ' contains a column of constants.')
+
         # This contains the included exponents of the trend polynomial,
         # where e.g. the constant term has exponent 0, a linear trend has
         # exponent 1, etc.
@@ -404,10 +429,11 @@ class SARIMAXSpecification(object):
         # Add trend data into exog
         nobs = len(endog) if exog is None else len(exog)
         if self.trend_order is not None:
+            # Add in the data
             trend_data = self.construct_trend_data(nobs, trend_offset)
             if exog is None:
                 exog = trend_data
-            elif _is_using_pandas(exog, None):
+            elif exog_is_pandas:
                 trend_data = pd.DataFrame(trend_data, index=exog.index,
                                           columns=self.construct_trend_names())
                 exog = pd.concat([trend_data, exog], axis=1)
@@ -423,7 +449,8 @@ class SARIMAXSpecification(object):
         self.exog = self._model.exog
 
         # Validate endog shape
-        if not faux_endog and self.endog.ndim > 1 and self.endog.shape[1] > 1:
+        if (validate_specification and not faux_endog and
+                self.endog.ndim > 1 and self.endog.shape[1] > 1):
             raise ValueError('SARIMAX models require univariate `endog`. Got'
                              ' shape %s.' % str(self.endog.shape))
 

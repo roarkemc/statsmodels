@@ -10,8 +10,10 @@ def dot_plot(points, intervals=None, lines=None, sections=None,
              fmt_left_name=None, fmt_right_name=None,
              show_section_titles=None, ax=None):
     """
+    Dot plotting (also known as forest and blobbogram).
+
     Produce a dotplot similar in style to those in Cleveland's
-    "Visualizing Data" book.  These are also known as "forest plots".
+    "Visualizing Data" book ([1]_).  These are also known as "forest plots".
 
     Parameters
     ----------
@@ -62,7 +64,7 @@ def dot_plot(points, intervals=None, lines=None, sections=None,
     styles_order : array_like
         If stacked=True, this is the order in which the point styles
         on a given line are drawn from top to bottom (if horizontal
-        is True) or from left to right (if horiontal is False).  If
+        is True) or from left to right (if horizontal is False).  If
         None (default), the order is lexical.
     striped : bool
         If True, every other line is enclosed in a shaded box.
@@ -75,10 +77,10 @@ def dot_plot(points, intervals=None, lines=None, sections=None,
         If `both`, labels are drawn in both margins, if 'left', labels
         are drawn in the left or top margin.  If `right`, labels are
         drawn in the right or bottom margin.
-    fmt_left_name : function
+    fmt_left_name : callable
         The left/top margin names are passed through this function
         before drawing on the plot.
-    fmt_right_name : function
+    fmt_right_name : callable
         The right/bottom marginnames are passed through this function
         before drawing on the plot.
     show_section_titles : bool or None
@@ -99,23 +101,24 @@ def dot_plot(points, intervals=None, lines=None, sections=None,
     `points`, `intervals`, `lines`, `sections`, `styles` must all have
     the same length whenever present.
 
+    References
+    ----------
+    .. [1] Cleveland, William S. (1993). "Visualizing Data". Hobart Press.
+    .. [2] Jacoby, William G. (2006) "The Dot Plot: A Graphical Display
+       for Labeled Quantitative Values." The Political Methodologist
+       14(1): 6-14.
+
     Examples
     --------
     This is a simple dotplot with one point per line:
+
     >>> dot_plot(points=point_values)
 
     This dotplot has labels on the lines (if elements in
     `label_values` are repeated, the corresponding points appear on
     the same line):
-    >>> dot_plot(points=point_values, lines=label_values)
 
-    References
-    ----------
-      * Cleveland, William S. (1993). "Visualizing Data". Hobart
-        Press.
-      * Jacoby, William G. (2006) "The Dot Plot: A Graphical Display
-        for Labeled Quantitative Values." The Political Methodologist
-        14(1): 6-14.
+    >>> dot_plot(points=point_values, lines=label_values)
     """
 
     import matplotlib.transforms as transforms

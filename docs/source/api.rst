@@ -101,13 +101,19 @@ Graphics
    ~statsmodels.graphics.gofplots.qqplot
    ~statsmodels.graphics.gofplots.qqplot_2samples
 
+Statistics
+~~~~~~~~~~
+.. autosummary::
+
+   ~statsmodels.stats.descriptivestats.Description
+   ~statsmodels.stats.descriptivestats.describe
+
 Tools
 ~~~~~
 .. autosummary::
 
    ~statsmodels.__init__.test
    ~statsmodels.tools.tools.add_constant
-   ~statsmodels.tools.tools.categorical
    ~statsmodels.iolib.smpickle.load_pickle
    ~statsmodels.tools.print_version.show_versions
    ~statsmodels.tools.web.webdoc
@@ -132,7 +138,6 @@ Statistics and Tests
    ~statsmodels.tsa.stattools.pacf
    ~statsmodels.tsa.stattools.pacf_ols
    ~statsmodels.tsa.stattools.pacf_yw
-   ~statsmodels.tsa.stattools.periodogram
    ~statsmodels.tsa.stattools.q_stat
 
 Univariate Time-Series Analysis
@@ -140,9 +145,8 @@ Univariate Time-Series Analysis
 
 .. autosummary::
 
-   ~statsmodels.tsa.ar_model.AR
-   ~statsmodels.tsa.arima_model.ARIMA
-   ~statsmodels.tsa.arima_model.ARMA
+   ~statsmodels.tsa.ar_model.AutoReg
+   ~statsmodels.tsa.arima.model.ARIMA
    ~statsmodels.tsa.statespace.sarimax.SARIMAX
    ~statsmodels.tsa.stattools.arma_order_select_ic
    ~statsmodels.tsa.arima_process.arma_generate_sample
@@ -156,6 +160,8 @@ Exponential Smoothing
    ~statsmodels.tsa.holtwinters.ExponentialSmoothing
    ~statsmodels.tsa.holtwinters.Holt
    ~statsmodels.tsa.holtwinters.SimpleExpSmoothing
+   ~statsmodels.tsa.statespace.exponential_smoothing.ExponentialSmoothing
+   ~statsmodels.tsa.exponential_smoothing.ets.ETSModel
 
 
 Multivariate Time Series Models
@@ -164,6 +170,7 @@ Multivariate Time Series Models
 .. autosummary::
 
    ~statsmodels.tsa.statespace.dynamic_factor.DynamicFactor
+   ~statsmodels.tsa.statespace.dynamic_factor_mq.DynamicFactorMQ
    ~statsmodels.tsa.vector_ar.var_model.VAR
    ~statsmodels.tsa.statespace.varmax.VARMAX
    ~statsmodels.tsa.vector_ar.svar_model.SVAR
@@ -189,6 +196,14 @@ Markov Regime Switching Models
    ~statsmodels.tsa.regime_switching.markov_autoregression.MarkovAutoregression
    ~statsmodels.tsa.regime_switching.markov_regression.MarkovRegression
 
+Forecasting
+~~~~~~~~~~~
+
+.. autosummary::
+
+   ~statsmodels.tsa.forecasting.stl.STLForecast
+   ~statsmodels.tsa.forecasting.theta.ThetaModel
+
 Time-Series Tools
 ~~~~~~~~~~~~~~~~~
 
@@ -199,6 +214,7 @@ Time-Series Tools
    ~statsmodels.tsa.tsatools.detrend
    ~statsmodels.tsa.tsatools.lagmat
    ~statsmodels.tsa.tsatools.lagmat2ds
+   ~statsmodels.tsa.deterministic.DeterministicProcess
 
 X12/X13 Interface
 ~~~~~~~~~~~~~~~~~

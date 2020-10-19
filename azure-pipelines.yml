@@ -10,19 +10,20 @@ variables:
   VML_NUM_THREADS: 1
   OPENBLAS_NUM_THREADS: 1
   PYTHONHASHSEED: 0 # Ensure tests are correctly gathered by xdist
+  SETUPTOOLS_USE_DISTUTILS: "stdlib"
 
 jobs:
 - template: tools/ci/azure_template.yml
   parameters:
     name: Linux
-    vmImage: ubuntu-18.04
+    vmImage: ubuntu-20.04
 
 - template: tools/ci/azure_template.yml
   parameters:
     name: macOS
-    vmImage: macOS-10.14
+    vmImage: macOS-10.15
 
 - template: tools/ci/azure_template.yml
   parameters:
     name: Windows
-    vmImage: vs2017-win2016
+    vmImage: windows-2019

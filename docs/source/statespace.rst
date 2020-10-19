@@ -194,7 +194,7 @@ For examples of the use of this model, see the `example notebook <examples/noteb
 
    # We could further add a damped stochastic cycle as follows
    mod_cycle = sm.tsa.UnobservedComponents(endog, 'local level', cycle=True,
-                                           damped_cycle=true,
+                                           damped_cycle=True,
                                            stochastic_cycle=True)
    res_cycle = mod_cycle.fit()
 
@@ -242,16 +242,22 @@ For an example of the use of this model, see the `VARMAX example notebook <examp
 Dynamic Factor Models
 ^^^^^^^^^^^^^^^^^^^^^
 
-The `DynamicFactor` class is another example of a multivariate statespace
-model.
+Statsmodels has two classes that support dynamic factor models:
+`DynamicFactorMQ` and `DynamicFactor`. Each of these models has strengths, but
+in general the `DynamicFactorMQ` class is recommended. This is because it fits
+parameters using the Expectation-Maximization (EM) algorithm, which is more
+robust and can handle including hundreds of observed series. In addition, it
+allows customization of which variables load on which factors. However, it does
+not yet support including exogenous variables, while `DynamicFactor` does
+support that feature.
 
 .. autosummary::
    :toctree: generated/
 
-   dynamic_factor.DynamicFactor
-   dynamic_factor.DynamicFactorResults
+   dynamic_factor_mq.DynamicFactorMQ
+   dynamic_factor_mq.DynamicFactorMQResults
 
-For an example of the use of this model, see the `Dynamic Factor example notebook <examples/notebooks/generated/statespace_dfm_coincident.html>`__ or the very brief code snippet below:
+For an example of the `DynamicFactorMQ` class, see the very brief code snippet below:
 
 .. code-block:: python
 
@@ -261,13 +267,13 @@ For an example of the use of this model, see the `Dynamic Factor example noteboo
    # Load your dataset
    endog = pd.read_csv('your/dataset/here.csv')
 
-   # Fit a local level model
-   mod_dfm = sm.tsa.DynamicFactor(endog, k_factors=1, factor_order=2)
-   # Note that mod_dfm is an instance of the DynamicFactor class
+   # Create a dynamic factor model
+   mod_dfm = sm.tsa.DynamicFactorMQ(endog, k_factors=1, factor_order=2)
+   # Note that mod_dfm is an instance of the DynamicFactorMQ class
 
-   # Fit the model via maximum likelihood
+   # Fit the model via maximum likelihood, using the EM algorithm
    res_dfm = mod_dfm.fit()
-   # Note that res_dfm is an instance of the DynamicFactorResults class
+   # Note that res_dfm is an instance of the DynamicFactorMQResults class
 
    # Show the summary of results
    print(res_ll.summary())
@@ -275,6 +281,19 @@ For an example of the use of this model, see the `Dynamic Factor example noteboo
    # Show a plot of the r^2 values from regressions of
    # individual estimated factors on endogenous variables.
    fig_dfm = res_ll.plot_coefficients_of_determination()
+
+
+The `DynamicFactor` class is suitable for models with a smaller number of
+observed variables
+
+.. autosummary::
+   :toctree: generated/
+
+   dynamic_factor.DynamicFactor
+   dynamic_factor.DynamicFactorResults
+
+For an example of the use of the `DynamicFactor` model, see the
+`Dynamic Factor example notebook <examples/notebooks/generated/statespace_dfm_coincident.html>`__ 
 
 Linear Exponential Smoothing Models
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -701,6 +720,20 @@ the example below, we use the `extend` method.
   # based on parameters computed using only the training sample
   print(test_results.sse)
 
+
+Understanding the Impact of Data Revisions
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Statespace model results expose a :meth:`~mlemodel.MLEModel.news` method that
+can be used to understand the impact of data revisions -- news -- on model
+parameters.
+
+.. autosummary::
+   :toctree: generated/
+
+   news.NewsResults
+
+
 Additional options and tools
 ----------------------------
 
@@ -838,7 +871,7 @@ sampling.
 
    simulation_smoother.SimulationSmoother
    simulation_smoother.SimulationSmoothResults
-
+   cfa_simulation_smoother.CFASimulationSmoother
 
 Statespace Tools
 ----------------

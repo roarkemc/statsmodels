@@ -8,7 +8,6 @@ License: Simplified-BSD
 
 import contextlib
 from warnings import warn
-from collections import OrderedDict
 
 import pandas as pd
 import numpy as np
@@ -48,9 +47,9 @@ class VARMAX(MLEModel):
         Can be specified as a string where 'c' indicates a constant (i.e. a
         degree zero component of the trend polynomial), 't' indicates a
         linear trend with time, and 'ct' is both. Can also be specified as an
-        iterable defining the polynomial as in `numpy.poly1d`, where
-        `[1,1,0,1]` would denote :math:`a + bt + ct^3`. Default is a constant
-        trend component.
+        iterable defining the non-zero polynomial exponents to include, in
+        increasing order. For example, `[1,1,0,1]` denotes
+        :math:`a + bt + ct^3`. Default is a constant trend component.
     error_cov_type : {'diagonal', 'unstructured'}, optional
         The structure of the covariance matrix of the error term, where
         "unstructured" puts no restrictions on the matrix and "diagonal"
@@ -84,8 +83,9 @@ class VARMAX(MLEModel):
         Can be specified as a string where 'c' indicates a constant (i.e. a
         degree zero component of the trend polynomial), 't' indicates a
         linear trend with time, and 'ct' is both. Can also be specified as an
-        iterable defining the polynomial as in `numpy.poly1d`, where
-        `[1,1,0,1]` would denote :math:`a + bt + ct^3`.
+        iterable defining the non-zero polynomial exponents to include, in
+        increasing order. For example, `[1,1,0,1]` denotes
+        :math:`a + bt + ct^3`.
     error_cov_type : {'diagonal', 'unstructured'}, optional
         The structure of the covariance matrix of the error term, where
         "unstructured" puts no restrictions on the matrix and "diagonal"
@@ -206,7 +206,7 @@ class VARMAX(MLEModel):
             self.ssm._time_invariant = False
 
         # Initialize the parameters
-        self.parameters = OrderedDict()
+        self.parameters = {}
         self.parameters['trend'] = self.k_endog * self.k_trend
         self.parameters['ar'] = self.k_endog**2 * self.k_ar
         self.parameters['ma'] = self.k_endog**2 * self.k_ma
@@ -454,16 +454,14 @@ class VARMAX(MLEModel):
 
         # 1. Intercept terms
         if self.k_trend > 0:
-            for i in self.polynomial_trend.nonzero()[0]:
-                if i == 0:
-                    param_names += ['intercept.%s' % endog_names[j]
-                                    for j in range(self.k_endog)]
-                elif i == 1:
-                    param_names += ['drift.%s' % endog_names[j]
-                                    for j in range(self.k_endog)]
-                else:
-                    param_names += ['trend.%d.%s' % (i, endog_names[j])
-                                    for j in range(self.k_endog)]
+            for j in range(self.k_endog):
+                for i in self.polynomial_trend.nonzero()[0]:
+                    if i == 0:
+                        param_names += ['intercept.%s' % endog_names[j]]
+                    elif i == 1:
+                        param_names += ['drift.%s' % endog_names[j]]
+                    else:
+                        param_names += ['trend.%d.%s' % (i, endog_names[j])]
 
         # 2. AR terms
         param_names += [
@@ -724,7 +722,7 @@ class VARMAX(MLEModel):
             # just += later
             if not self.mle_regression:
                 zero = np.array(0, dtype=params.dtype)
-                self.ssm[self._idx_state_intercept] = zero
+                self.ssm['state_intercept', :] = zero
 
             trend_params = params[self._params_trend].reshape(
                 self.k_endog, self.k_trend).T
@@ -936,14 +934,11 @@ class VARMAXResults(MLEResults):
 
         Notes
         -----
-        We need special handling for forecasting with `exog` or trend, because
+        We need special handling for forecasting with `exog`, because
         if we had these then the last predicted_state has been set to NaN since
-        we did not have the appropriate `exog` to create it. Since we handle
-        trend in the same way as `exog`, we still have this issue when only
-        trend is used without `exog`.
+        we did not have the appropriate `exog` to create it.
         """
-        flag = out_of_sample and (
-            self.model.k_exog > 0 or self.model.k_trend > 0)
+        flag = out_of_sample and self.model.k_exog > 0
 
         if flag:
             tmp_endog = concat([
@@ -1030,6 +1025,44 @@ class VARMAXResults(MLEResults):
                 extend_model=extend_model, extend_kwargs=extend_kwargs,
                 **kwargs)
 
+        return out
+
+    def _news_previous_results(self, previous, start, end, periods):
+        # We need to figure out the out-of-sample exog, so that we can add back
+        # in the last exog, predicted state
+        exog = None
+        out_of_sample = self.nobs - previous.nobs
+        if self.model.k_exog > 0 and out_of_sample > 0:
+            exog = self.model.exog[-out_of_sample:]
+
+        # We also need to manually compute the `revised` results,
+        rev_endog = self.model.endog[:previous.nobs].copy()
+        rev_endog[previous.filter_results.missing.astype(bool).T] = np.nan
+        has_revisions = not np.allclose(rev_endog, previous.model.endog,
+                                        equal_nan=True)
+        revised_results = None
+        if has_revisions:
+            rev_exog = None
+            if self.model.exog is not None:
+                rev_exog = self.model.exog[:previous.nobs].copy()
+            rev_mod = previous.model.clone(rev_endog, exog=rev_exog)
+            revised = rev_mod.smooth(self.params)
+
+        # Compute the news
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(previous.model._set_final_exog(exog))
+            stack.enter_context(previous._set_final_predicted_state(
+                exog, out_of_sample))
+
+            if has_revisions:
+                stack.enter_context(revised.model._set_final_exog(exog))
+                stack.enter_context(revised._set_final_predicted_state(
+                    exog, out_of_sample))
+                revised_results = revised.smoother_results
+
+            out = self.smoother_results.news(
+                previous.smoother_results, start=start, end=end,
+                revised=revised_results)
         return out
 
     @Appender(MLEResults.summary.__doc__)

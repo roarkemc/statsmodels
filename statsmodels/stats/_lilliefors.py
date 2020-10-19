@@ -42,6 +42,7 @@ from functools import partial
 import numpy as np
 from scipy import stats
 
+from statsmodels.tools.validation import string_like
 from ._lilliefors_critical_values import (critical_values,
                                           asymp_critical_values,
                                           PERCENTILES)
@@ -160,7 +161,7 @@ def get_lilliefors_table(dist='norm'):
     cv_data = critical_values[dist]
     acv_data = asymp_critical_values[dist]
 
-    size = np.array(sorted(cv_data), dtype=np.float)
+    size = np.array(sorted(cv_data), dtype=float)
     crit_lf = np.array([cv_data[key] for key in sorted(cv_data)])
     crit_lf = crit_lf[:, ::-1]
 
@@ -218,7 +219,7 @@ def pval_lf(d_max, n):
     return pval
 
 
-def kstest_fit(x, dist='norm', pvalmethod=None):
+def kstest_fit(x, dist='norm', pvalmethod="table"):
     """
     Test assumed normal or exponential distribution using Lilliefors' test.
 
@@ -262,15 +263,9 @@ def kstest_fit(x, dist='norm', pvalmethod=None):
     For implementation details, see  lilliefors_critical_value_simulation.py in
     the test directory.
     """
-    if pvalmethod is None:
-        pvalmethod = 'approx'
-        import warnings
-        msg = 'The default pvalmethod will change from "approx" to "table" ' \
-              'after 0.11. The "table" method uses values from a very large ' \
-              'simulation and is more accurate.  Explicitly set this ' \
-              'parameter to "approx" or "table" to silence this warning'
-        warnings.warn(msg, FutureWarning)
-
+    pvalmethod = string_like(pvalmethod,
+                             "pvalmethod",
+                             options=("approx", "table"))
     x = np.asarray(x)
     nobs = len(x)
 

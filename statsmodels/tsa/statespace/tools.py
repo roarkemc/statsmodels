@@ -310,14 +310,43 @@ def concat(series, axis=0, allow_mix=False):
         objects.
     """
     is_pandas = np.r_[[_is_using_pandas(s, None) for s in series]]
+    ndim = np.r_[[np.ndim(s) for s in series]]
+    max_ndim = np.max(ndim)
+
+    if max_ndim > 2:
+        raise ValueError('`tools.concat` does not support arrays with 3 or'
+                         ' more dimensions.')
+
+    # Make sure the iterable is mutable
+    if isinstance(series, tuple):
+        series = list(series)
+
+    # Standardize ndim
+    for i in range(len(series)):
+        if ndim[i] == 0 and max_ndim == 1:
+            series[i] = np.atleast_1d(series[i])
+        elif ndim[i] == 0 and max_ndim == 2:
+            series[i] = np.atleast_2d(series[i])
+        elif ndim[i] == 1 and max_ndim == 2 and is_pandas[i]:
+            name = series[i].name
+            series[i] = series[i].to_frame()
+            series[i].columns = [name]
+        elif ndim[i] == 1 and max_ndim == 2 and not is_pandas[i]:
+            series[i] = np.atleast_2d(series[i]).T
 
     if np.all(is_pandas):
         if isinstance(series[0], pd.DataFrame):
             base_columns = series[0].columns
         else:
             base_columns = pd.Index([series[0].name])
-        for s in series[1:]:
+        for i in range(1, len(series)):
+            s = series[i]
+
             if isinstance(s, pd.DataFrame):
+                # Handle case where we were passed a dataframe and a series
+                # to concatenate, and the series did not have a name.
+                if s.columns.equals(pd.Index([None])):
+                    s.columns = base_columns[:1]
                 s_columns = s.columns
             else:
                 s_columns = pd.Index([s.name])
@@ -354,6 +383,10 @@ def is_invertible(polynomial, threshold=1 - 1e-10):
         a tuple or list of matrices should be passed.
     threshold : number
         Allowed threshold for `is_invertible` to return True. Default is 1.
+
+    See Also
+    --------
+    companion_matrix
 
     Notes
     -----
@@ -395,10 +428,6 @@ def is_invertible(polynomial, threshold=1 - 1e-10):
     Finally, a companion matrix can be formed using the coefficients of the
     polynomial. Then the eigenvalues of that matrix give the roots of the
     polynomial. This last method is the one actually used.
-
-    See Also
-    --------
-    companion_matrix
     """
     # First method:
     # np.all(np.abs(np.roots(np.r_[1, params])) < 1)
@@ -532,14 +561,14 @@ def _constrain_sv_less_than_one_python(unconstrained, order=None,
         Partial autocorrelation matrices. Should be a list of length
         `order`, where each element is an array sized `k_endog` x `k_endog`.
 
+    See Also
+    --------
+    constrain_stationary_multivariate
+
     Notes
     -----
     Corresponds to Lemma 2.2 in Ansley and Kohn (1986). See
     `constrain_stationary_multivariate` for more details.
-
-    There is a Cython implementation of this function that can be much faster,
-    but which requires SciPy 0.14.0 or greater. See
-    `constrain_stationary_multivariate` for details.
     """
 
     from scipy import linalg
@@ -591,14 +620,14 @@ def _compute_coefficients_from_multivariate_pacf_python(
         Transformed coefficient matrices leading to a stationary VAR
         representation.
 
+    See Also
+    --------
+    constrain_stationary_multivariate
+
     Notes
     -----
     Corresponds to Lemma 2.1 in Ansley and Kohn (1986). See
     `constrain_stationary_multivariate` for more details.
-
-    There is a Cython implementation of this function that can be much faster,
-    but which requires SciPy 0.14.0 or greater. See
-    `constrain_stationary_multivariate` for details.
     """
     from scipy import linalg
 
@@ -902,6 +931,10 @@ def _unconstrain_sv_less_than_one(constrained, order=None, k_endog=None):
         Unconstrained matrices. A list of length `order`, where each element is
         an array sized `k_endog` x `k_endog`.
 
+    See Also
+    --------
+    unconstrain_stationary_multivariate
+
     Notes
     -----
     Corresponds to the inverse of Lemma 2.2 in Ansley and Kohn (1986). See
@@ -1133,6 +1166,10 @@ def _compute_multivariate_pacf_from_autocovariances(autocovariances,
     pacf : list
         List of first `order` multivariate partial autocorrelations.
 
+    See Also
+    --------
+    unconstrain_stationary_multivariate
+
     Notes
     -----
     Note that this computes multivariate partial autocorrelations.
@@ -1140,8 +1177,6 @@ def _compute_multivariate_pacf_from_autocovariances(autocovariances,
     Corresponds to the inverse of Lemma 2.1 in Ansley and Kohn (1986). See
     `unconstrain_stationary_multivariate` for more details.
 
-    Notes
-    -----
     Computes sample partial autocorrelations if sample autocovariances are
     given.
     """
@@ -1297,6 +1332,10 @@ def _compute_multivariate_pacf_from_coefficients(constrained, error_variance,
     pacf : list
         List of first `order` multivariate partial autocorrelations.
 
+    See Also
+    --------
+    unconstrain_stationary_multivariate
+
     Notes
     -----
     Note that this computes multivariate partial autocorrelations.
@@ -1306,7 +1345,6 @@ def _compute_multivariate_pacf_from_coefficients(constrained, error_variance,
 
     Notes
     -----
-
     Coefficients are assumed to be provided from the VAR model:
 
     .. math::

@@ -32,6 +32,9 @@
   - img: ../_static/images/mixed_lm.png
     target: notebooks/generated/mixed_lm_example.html
     text: Linear Mixed-Effects
+  - img: ../_static/images/variance_components.png
+    target: notebooks/generated/variance_components.html
+    text: Variance Component Analysis
 - header: Plotting
   id: plotting
   links:
@@ -53,6 +56,9 @@
   - img: ../_static/images/fairs_data.png
     target: notebooks/generated/discrete_choice_example.html
     text: Fair's Affairs Data
+  - img: ../_static/images/ordered_model.png
+    target: notebooks/generated/ordinal_regression.html
+    text: Ordinal Regression
 - header: Nonparametric Statistics
   id: nonparametric
   links:
@@ -74,6 +80,9 @@
   - img: ../_static/images/influence_glm_logit.png
     target: notebooks/generated/influence_glm_logit.html
     text: Influence Measures for GLMs
+  - img: ../_static/images/quasibinomial.png
+    target: notebooks/generated/quasibinomial.html
+    text: Quasi-binomial regression
 - header: Robust Regression
   id: robust
   links:
@@ -98,12 +107,21 @@
   - img: ../_static/images/anova.png
     target: notebooks/generated/interactions_anova.html
     text: ANOVA
+  - img: ../_static/images/metaanalysis1.png
+    target: notebooks/generated/metaanalysis1.html
+    text: Meta-Analysis in statsmodels
+  - img: ../_static/images/mediation_survival.png
+    target: notebooks/generated/mediation_survival.html
+    text: Mediation analysis with duration data
 - header: Time Series Analysis
   id: stats
   links:
   - img: ../_static/images/autoregressions.png
     target: notebooks/generated/autoregressions.html
     text: Autoregressions
+  - img: ../_static/images/deterministics.png
+    target: notebooks/generated/deterministics.html
+    text: Deterministic Terms
   - img: ../_static/images/tsa_arma0.png
     target: notebooks/generated/tsa_arma_0.html
     text: 'ARMA: Sunspots Data'
@@ -125,6 +143,9 @@
   - img: ../_static/images/stl_decomposition.png
     target: notebooks/generated/stl_decomposition.html
     text: Seasonal Decomposition
+  - img: ../_static/images/stationarity_detrending_adf_kpss.png
+    target: notebooks/generated/stationarity_detrending_adf_kpss.html
+    text: Stationarity and detrending (ADF/KPSS)
 - header: State space models
   id: statespace
   links:
@@ -161,9 +182,18 @@
   - img: ../_static/images/statespace_tvpvar_mcmc_cfa.png
     target: notebooks/generated/statespace_tvpvar_mcmc_cfa.html
     text: TVP-VAR, MCMC, and sparse simulation smoothing
-  - img: ../_static/images/statespace_bayesian_sarimax.png
+  - img: ../_static/images/statespace_sarimax_pymc3.png
     target: notebooks/generated/statespace_sarimax_pymc3.html
     text: SARIMAX estimation with Bayesian methods
+  - img: ../_static/images/statespace_news.png
+    target: notebooks/generated/statespace_news.html
+    text: 'Forecasting, updating datasets, and the "news"'
+  - img: ../_static/images/statespace_custom_models.png
+    target: notebooks/generated/statespace_custom_models.html
+    text: 'Statespace: Custom Models'
+  - img: ../_static/images/ets.png
+    target: notebooks/generated/ets.html
+    text: 'ETS models'
 - header: State space models - Technical notes
   id: statespace_notes
   links:
@@ -173,6 +203,12 @@
   - img: ../_static/images/statespace_chandrasekhar.png
     target: notebooks/generated/statespace_chandrasekhar.html
     text: 'State space models: Chandrasekhar recursions'
+- header: Forecasting
+  id: forecasting
+  links:
+  - img: ../_static/images/theta-model.png
+    target: notebooks/generated/theta-model.html
+    text: 'Forecasting using the Theta Model'
 - header: Multivariate Methods
   id: multivariate
   links:

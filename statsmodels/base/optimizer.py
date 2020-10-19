@@ -22,9 +22,21 @@ class Optimizer(object):
 
         Parameters
         ----------
+        objective : function
+            Objective function to be minimized.
+        gradient : function
+            The gradient of the objective function.
         start_params : array_like, optional
             Initial guess of the solution for the loglikelihood maximization.
             The default is an array of zeros.
+        fargs : tuple
+            Extra arguments passed to the objective function, i.e.
+            objective(x,*args)
+        kwargs : tuple
+            Extra keyworded arguments passed to the objective function, i.e.
+            objective(x,**kwargs)
+        hessian : str, optional
+            Method for computing the Hessian matrix, if applicable.
         method : str {'newton','nm','bfgs','powell','cg','ncg','basinhopping',
             'minimize'}
             Method can be 'newton' for Newton-Raphson, 'nm' for Nelder-Mead,
@@ -47,9 +59,6 @@ class Optimizer(object):
             See LikelihoodModelResults notes section for more information.
         disp : bool
             Set to True to print convergence messages.
-        fargs : tuple
-            Extra arguments passed to the likelihood function, i.e.,
-            loglike(x,*args)
         callback : callable callback(xk)
             Called after each iteration, as callback(xk), where xk is the
             current parameter vector.
@@ -253,12 +262,56 @@ class Optimizer(object):
 
 
 def _fit_minimize(f, score, start_params, fargs, kwargs, disp=True,
-                        maxiter=100, callback=None, retall=False,
-                        full_output=True, hess=None):
+                  maxiter=100, callback=None, retall=False,
+                  full_output=True, hess=None):
+    """
+    Fit using scipy minimize, where kwarg `min_method` defines the algorithm.
+
+    Parameters
+    ----------
+    f : function
+        Returns negative log likelihood given parameters.
+    score : function
+        Returns gradient of negative log likelihood with respect to params.
+    start_params : array_like, optional
+        Initial guess of the solution for the loglikelihood maximization.
+        The default is an array of zeros.
+    fargs : tuple
+        Extra arguments passed to the objective function, i.e.
+        objective(x,*args)
+    kwargs : tuple
+        Extra keyworded arguments passed to the objective function, i.e.
+        objective(x,**kwargs)
+    disp : bool
+        Set to True to print convergence messages.
+    maxiter : int
+        The maximum number of iterations to perform.
+    callback : callable callback(xk)
+        Called after each iteration, as callback(xk), where xk is the
+        current parameter vector.
+    retall : bool
+        Set to True to return list of solutions at each iteration.
+        Available in Results object's mle_retvals attribute.
+    full_output : bool
+        Set to True to have all available output in the Results object's
+        mle_retvals attribute. The output is dependent on the solver.
+        See LikelihoodModelResults notes section for more information.
+    hess : str, optional
+        Method for computing the Hessian matrix, if applicable.
+
+    Returns
+    -------
+    xopt : ndarray
+        The solution to the objective function
+    retvals : dict, None
+        If `full_output` is True then this is a dictionary which holds
+        information returned from the solver used. If it is False, this is
+        None.
+    """
     kwargs.setdefault('min_method', 'BFGS')
 
     # prepare options dict for minimize
-    filter_opts = ['extra_fit_funcs', 'niter', 'min_method', 'tol']
+    filter_opts = ['extra_fit_funcs', 'niter', 'min_method', 'tol', 'bounds', 'constraints']
     options = dict((k,v) for k,v in kwargs.items() if k not in filter_opts)
     options['disp']    = disp
     options['maxiter'] = maxiter
@@ -271,8 +324,23 @@ def _fit_minimize(f, score, start_params, fargs, kwargs, disp=True,
     if kwargs['min_method'] in no_jac:
         score = None
 
+    # Use bounds/constraints only if they're allowed by the method
+    has_bounds = ['L-BFGS-B', 'TNC', 'SLSQP', 'trust-constr']
+    has_constraints = ['COBYLA', 'SLSQP' , 'trust-constr']
+
+    if 'bounds' in kwargs.keys() and kwargs['min_method'] in has_bounds:
+        bounds = kwargs['bounds']
+    else:
+        bounds = None
+
+    if 'constraints' in kwargs.keys() and kwargs['min_method'] in has_constraints:
+        constraints = kwargs['constraints']
+    else:
+        constraints = ()
+
     res = optimize.minimize(f, start_params, args=fargs, method=kwargs['min_method'],
-                            jac=score, hess=hess, callback=callback, options=options)
+                            jac=score, hess=hess, bounds=bounds, constraints=constraints,
+                            callback=callback, options=options)
 
     xopt    = res.x
     retvals = None
@@ -288,8 +356,54 @@ def _fit_minimize(f, score, start_params, fargs, kwargs, disp=True,
 
 
 def _fit_newton(f, score, start_params, fargs, kwargs, disp=True,
-                    maxiter=100, callback=None, retall=False,
-                    full_output=True, hess=None, ridge_factor=1e-10):
+                maxiter=100, callback=None, retall=False,
+                full_output=True, hess=None, ridge_factor=1e-10):
+    """
+    Fit using Newton-Raphson algorithm.
+
+    Parameters
+    ----------
+    f : function
+        Returns negative log likelihood given parameters.
+    score : function
+        Returns gradient of negative log likelihood with respect to params.
+    start_params : array_like, optional
+        Initial guess of the solution for the loglikelihood maximization.
+        The default is an array of zeros.
+    fargs : tuple
+        Extra arguments passed to the objective function, i.e.
+        objective(x,*args)
+    kwargs : tuple
+        Extra keyworded arguments passed to the objective function, i.e.
+        objective(x,**kwargs)
+    disp : bool
+        Set to True to print convergence messages.
+    maxiter : int
+        The maximum number of iterations to perform.
+    callback : callable callback(xk)
+        Called after each iteration, as callback(xk), where xk is the
+        current parameter vector.
+    retall : bool
+        Set to True to return list of solutions at each iteration.
+        Available in Results object's mle_retvals attribute.
+    full_output : bool
+        Set to True to have all available output in the Results object's
+        mle_retvals attribute. The output is dependent on the solver.
+        See LikelihoodModelResults notes section for more information.
+    hess : str, optional
+        Method for computing the Hessian matrix, if applicable.
+    ridge_factor : float
+        Regularization factor for Hessian matrix.
+
+    Returns
+    -------
+    xopt : ndarray
+        The solution to the objective function
+    retvals : dict, None
+        If `full_output` is True then this is a dictionary which holds
+        information returned from the solver used. If it is False, this is
+        None.
+    """
     tol = kwargs.setdefault('tol', 1e-8)
     iterations = 0
     oldparams = np.inf
@@ -345,8 +459,52 @@ def _fit_newton(f, score, start_params, fargs, kwargs, disp=True,
 
 
 def _fit_bfgs(f, score, start_params, fargs, kwargs, disp=True,
-                    maxiter=100, callback=None, retall=False,
-                    full_output=True, hess=None):
+              maxiter=100, callback=None, retall=False,
+              full_output=True, hess=None):
+    """
+    Fit using Broyden-Fletcher-Goldfarb-Shannon algorithm.
+
+    Parameters
+    ----------
+    f : function
+        Returns negative log likelihood given parameters.
+    score : function
+        Returns gradient of negative log likelihood with respect to params.
+    start_params : array_like, optional
+        Initial guess of the solution for the loglikelihood maximization.
+        The default is an array of zeros.
+    fargs : tuple
+        Extra arguments passed to the objective function, i.e.
+        objective(x,*args)
+    kwargs : tuple
+        Extra keyworded arguments passed to the objective function, i.e.
+        objective(x,**kwargs)
+    disp : bool
+        Set to True to print convergence messages.
+    maxiter : int
+        The maximum number of iterations to perform.
+    callback : callable callback(xk)
+        Called after each iteration, as callback(xk), where xk is the
+        current parameter vector.
+    retall : bool
+        Set to True to return list of solutions at each iteration.
+        Available in Results object's mle_retvals attribute.
+    full_output : bool
+        Set to True to have all available output in the Results object's
+        mle_retvals attribute. The output is dependent on the solver.
+        See LikelihoodModelResults notes section for more information.
+    hess : str, optional
+        Method for computing the Hessian matrix, if applicable.
+
+    Returns
+    -------
+    xopt : ndarray
+        The solution to the objective function
+    retvals : dict, None
+        If `full_output` is True then this is a dictionary which holds
+        information returned from the solver used. If it is False, this is
+        None.
+    """
     gtol = kwargs.setdefault('gtol', 1.0000000000000001e-05)
     norm = kwargs.setdefault('norm', np.Inf)
     epsilon = kwargs.setdefault('epsilon', 1.4901161193847656e-08)
@@ -376,7 +534,7 @@ def _fit_bfgs(f, score, start_params, fargs, kwargs, disp=True,
 def _fit_lbfgs(f, score, start_params, fargs, kwargs, disp=True, maxiter=100,
                callback=None, retall=False, full_output=True, hess=None):
     """
-    Fit model using L-BFGS algorithm
+    Fit using Limited-memory Broyden-Fletcher-Goldfarb-Shannon algorithm.
 
     Parameters
     ----------
@@ -384,6 +542,40 @@ def _fit_lbfgs(f, score, start_params, fargs, kwargs, disp=True, maxiter=100,
         Returns negative log likelihood given parameters.
     score : function
         Returns gradient of negative log likelihood with respect to params.
+    start_params : array_like, optional
+        Initial guess of the solution for the loglikelihood maximization.
+        The default is an array of zeros.
+    fargs : tuple
+        Extra arguments passed to the objective function, i.e.
+        objective(x,*args)
+    kwargs : tuple
+        Extra keyworded arguments passed to the objective function, i.e.
+        objective(x,**kwargs)
+    disp : bool
+        Set to True to print convergence messages.
+    maxiter : int
+        The maximum number of iterations to perform.
+    callback : callable callback(xk)
+        Called after each iteration, as callback(xk), where xk is the
+        current parameter vector.
+    retall : bool
+        Set to True to return list of solutions at each iteration.
+        Available in Results object's mle_retvals attribute.
+    full_output : bool
+        Set to True to have all available output in the Results object's
+        mle_retvals attribute. The output is dependent on the solver.
+        See LikelihoodModelResults notes section for more information.
+    hess : str, optional
+        Method for computing the Hessian matrix, if applicable.
+
+    Returns
+    -------
+    xopt : ndarray
+        The solution to the objective function
+    retvals : dict, None
+        If `full_output` is True then this is a dictionary which holds
+        information returned from the solver used. If it is False, this is
+        None.
 
     Notes
     -----
@@ -461,8 +653,52 @@ def _fit_lbfgs(f, score, start_params, fargs, kwargs, disp=True, maxiter=100,
 
 
 def _fit_nm(f, score, start_params, fargs, kwargs, disp=True,
-                maxiter=100, callback=None, retall=False,
-                full_output=True, hess=None):
+            maxiter=100, callback=None, retall=False,
+            full_output=True, hess=None):
+    """
+    Fit using Nelder-Mead algorithm.
+
+    Parameters
+    ----------
+    f : function
+        Returns negative log likelihood given parameters.
+    score : function
+        Returns gradient of negative log likelihood with respect to params.
+    start_params : array_like, optional
+        Initial guess of the solution for the loglikelihood maximization.
+        The default is an array of zeros.
+    fargs : tuple
+        Extra arguments passed to the objective function, i.e.
+        objective(x,*args)
+    kwargs : tuple
+        Extra keyworded arguments passed to the objective function, i.e.
+        objective(x,**kwargs)
+    disp : bool
+        Set to True to print convergence messages.
+    maxiter : int
+        The maximum number of iterations to perform.
+    callback : callable callback(xk)
+        Called after each iteration, as callback(xk), where xk is the
+        current parameter vector.
+    retall : bool
+        Set to True to return list of solutions at each iteration.
+        Available in Results object's mle_retvals attribute.
+    full_output : bool
+        Set to True to have all available output in the Results object's
+        mle_retvals attribute. The output is dependent on the solver.
+        See LikelihoodModelResults notes section for more information.
+    hess : str, optional
+        Method for computing the Hessian matrix, if applicable.
+
+    Returns
+    -------
+    xopt : ndarray
+        The solution to the objective function
+    retvals : dict, None
+        If `full_output` is True then this is a dictionary which holds
+        information returned from the solver used. If it is False, this is
+        None.
+    """
     xtol = kwargs.setdefault('xtol', 0.0001)
     ftol = kwargs.setdefault('ftol', 0.0001)
     maxfun = kwargs.setdefault('maxfun', None)
@@ -489,8 +725,52 @@ def _fit_nm(f, score, start_params, fargs, kwargs, disp=True,
 
 
 def _fit_cg(f, score, start_params, fargs, kwargs, disp=True,
-                maxiter=100, callback=None, retall=False,
-                full_output=True, hess=None):
+            maxiter=100, callback=None, retall=False,
+            full_output=True, hess=None):
+    """
+    Fit using Conjugate Gradient algorithm.
+
+    Parameters
+    ----------
+    f : function
+        Returns negative log likelihood given parameters.
+    score : function
+        Returns gradient of negative log likelihood with respect to params.
+    start_params : array_like, optional
+        Initial guess of the solution for the loglikelihood maximization.
+        The default is an array of zeros.
+    fargs : tuple
+        Extra arguments passed to the objective function, i.e.
+        objective(x,*args)
+    kwargs : tuple
+        Extra keyworded arguments passed to the objective function, i.e.
+        objective(x,**kwargs)
+    disp : bool
+        Set to True to print convergence messages.
+    maxiter : int
+        The maximum number of iterations to perform.
+    callback : callable callback(xk)
+        Called after each iteration, as callback(xk), where xk is the
+        current parameter vector.
+    retall : bool
+        Set to True to return list of solutions at each iteration.
+        Available in Results object's mle_retvals attribute.
+    full_output : bool
+        Set to True to have all available output in the Results object's
+        mle_retvals attribute. The output is dependent on the solver.
+        See LikelihoodModelResults notes section for more information.
+    hess : str, optional
+        Method for computing the Hessian matrix, if applicable.
+
+    Returns
+    -------
+    xopt : ndarray
+        The solution to the objective function
+    retvals : dict, None
+        If `full_output` is True then this is a dictionary which holds
+        information returned from the solver used. If it is False, this is
+        None.
+    """
     gtol = kwargs.setdefault('gtol', 1.0000000000000001e-05)
     norm = kwargs.setdefault('norm', np.Inf)
     epsilon = kwargs.setdefault('epsilon', 1.4901161193847656e-08)
@@ -517,8 +797,52 @@ def _fit_cg(f, score, start_params, fargs, kwargs, disp=True,
 
 
 def _fit_ncg(f, score, start_params, fargs, kwargs, disp=True,
-                 maxiter=100, callback=None, retall=False,
-                 full_output=True, hess=None):
+             maxiter=100, callback=None, retall=False,
+             full_output=True, hess=None):
+    """
+    Fit using Newton Conjugate Gradient algorithm.
+
+    Parameters
+    ----------
+    f : function
+        Returns negative log likelihood given parameters.
+    score : function
+        Returns gradient of negative log likelihood with respect to params.
+    start_params : array_like, optional
+        Initial guess of the solution for the loglikelihood maximization.
+        The default is an array of zeros.
+    fargs : tuple
+        Extra arguments passed to the objective function, i.e.
+        objective(x,*args)
+    kwargs : tuple
+        Extra keyworded arguments passed to the objective function, i.e.
+        objective(x,**kwargs)
+    disp : bool
+        Set to True to print convergence messages.
+    maxiter : int
+        The maximum number of iterations to perform.
+    callback : callable callback(xk)
+        Called after each iteration, as callback(xk), where xk is the
+        current parameter vector.
+    retall : bool
+        Set to True to return list of solutions at each iteration.
+        Available in Results object's mle_retvals attribute.
+    full_output : bool
+        Set to True to have all available output in the Results object's
+        mle_retvals attribute. The output is dependent on the solver.
+        See LikelihoodModelResults notes section for more information.
+    hess : str, optional
+        Method for computing the Hessian matrix, if applicable.
+
+    Returns
+    -------
+    xopt : ndarray
+        The solution to the objective function
+    retvals : dict, None
+        If `full_output` is True then this is a dictionary which holds
+        information returned from the solver used. If it is False, this is
+        None.
+    """
     fhess_p = kwargs.setdefault('fhess_p', None)
     avextol = kwargs.setdefault('avextol', 1.0000000000000001e-05)
     epsilon = kwargs.setdefault('epsilon', 1.4901161193847656e-08)
@@ -547,8 +871,52 @@ def _fit_ncg(f, score, start_params, fargs, kwargs, disp=True,
 
 
 def _fit_powell(f, score, start_params, fargs, kwargs, disp=True,
-                    maxiter=100, callback=None, retall=False,
-                    full_output=True, hess=None):
+                maxiter=100, callback=None, retall=False,
+                full_output=True, hess=None):
+    """
+    Fit using Powell's conjugate direction algorithm.
+
+    Parameters
+    ----------
+    f : function
+        Returns negative log likelihood given parameters.
+    score : function
+        Returns gradient of negative log likelihood with respect to params.
+    start_params : array_like, optional
+        Initial guess of the solution for the loglikelihood maximization.
+        The default is an array of zeros.
+    fargs : tuple
+        Extra arguments passed to the objective function, i.e.
+        objective(x,*args)
+    kwargs : tuple
+        Extra keyworded arguments passed to the objective function, i.e.
+        objective(x,**kwargs)
+    disp : bool
+        Set to True to print convergence messages.
+    maxiter : int
+        The maximum number of iterations to perform.
+    callback : callable callback(xk)
+        Called after each iteration, as callback(xk), where xk is the
+        current parameter vector.
+    retall : bool
+        Set to True to return list of solutions at each iteration.
+        Available in Results object's mle_retvals attribute.
+    full_output : bool
+        Set to True to have all available output in the Results object's
+        mle_retvals attribute. The output is dependent on the solver.
+        See LikelihoodModelResults notes section for more information.
+    hess : str, optional
+        Method for computing the Hessian matrix, if applicable.
+
+    Returns
+    -------
+    xopt : ndarray
+        The solution to the objective function
+    retvals : dict, None
+        If `full_output` is True then this is a dictionary which holds
+        information returned from the solver used. If it is False, this is
+        None.
+    """
     xtol = kwargs.setdefault('xtol', 0.0001)
     ftol = kwargs.setdefault('ftol', 0.0001)
     maxfun = kwargs.setdefault('maxfun', None)
@@ -578,9 +946,52 @@ def _fit_powell(f, score, start_params, fargs, kwargs, disp=True,
 
 
 def _fit_basinhopping(f, score, start_params, fargs, kwargs, disp=True,
-                          maxiter=100, callback=None, retall=False,
-                          full_output=True, hess=None):
+                      maxiter=100, callback=None, retall=False,
+                      full_output=True, hess=None):
+    """
+    Fit using Basin-hopping algorithm.
 
+    Parameters
+    ----------
+    f : function
+        Returns negative log likelihood given parameters.
+    score : function
+        Returns gradient of negative log likelihood with respect to params.
+    start_params : array_like, optional
+        Initial guess of the solution for the loglikelihood maximization.
+        The default is an array of zeros.
+    fargs : tuple
+        Extra arguments passed to the objective function, i.e.
+        objective(x,*args)
+    kwargs : tuple
+        Extra keyworded arguments passed to the objective function, i.e.
+        objective(x,**kwargs)
+    disp : bool
+        Set to True to print convergence messages.
+    maxiter : int
+        The maximum number of iterations to perform.
+    callback : callable callback(xk)
+        Called after each iteration, as callback(xk), where xk is the
+        current parameter vector.
+    retall : bool
+        Set to True to return list of solutions at each iteration.
+        Available in Results object's mle_retvals attribute.
+    full_output : bool
+        Set to True to have all available output in the Results object's
+        mle_retvals attribute. The output is dependent on the solver.
+        See LikelihoodModelResults notes section for more information.
+    hess : str, optional
+        Method for computing the Hessian matrix, if applicable.
+
+    Returns
+    -------
+    xopt : ndarray
+        The solution to the objective function
+    retvals : dict, None
+        If `full_output` is True then this is a dictionary which holds
+        information returned from the solver used. If it is False, this is
+        None.
+    """
     from copy import copy
     kwargs = copy(kwargs)
     niter = kwargs.setdefault('niter', 100)

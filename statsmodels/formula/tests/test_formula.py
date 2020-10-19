@@ -1,4 +1,3 @@
-from statsmodels.compat.python import iteritems
 from statsmodels.compat.pandas import assert_series_equal
 
 from io import StringIO
@@ -60,7 +59,7 @@ class TestFormulaPandas(CheckFormulaOLS):
 class TestFormulaDict(CheckFormulaOLS):
     @classmethod
     def setup_class(cls):
-        data = dict((k, v.tolist()) for k, v in iteritems(load_pandas().data))
+        data = dict((k, v.tolist()) for k, v in load_pandas().data.items())
         cls.model = ols(longley_formula, data)
         super(TestFormulaDict, cls).setup_class()
 
@@ -233,3 +232,14 @@ def test_formula_environment():
     assert 'z' in model.exog_names
     with pytest.raises(TypeError):
         ols('y ~ x', eval_env='env', data=df)
+
+
+def test_formula_predict_series_exog():
+    # GH-6509
+    x = np.random.standard_normal((1000, 2))
+    data_full = pd.DataFrame(x, columns=["y", "x"])
+    data = data_full.iloc[:500]
+    res = ols(formula='y ~ x', data=data).fit()
+    oos = data_full.iloc[500:]["x"]
+    prediction = res.get_prediction(oos)
+    assert prediction.predicted_mean.shape[0] == 500

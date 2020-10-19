@@ -80,8 +80,8 @@ class ExponentialSmoothing(MLEModel):
     exponential smoothing equations as a special case of a linear Gaussian
     state space model and applying the Kalman filter. As such, it has slightly
     worse performance than the dedicated exponential smoothing model,
-    `sm.tsa.ExponentialSmoothing`, and it does not support multiplicative
-    (nonlinear) exponential smoothing models.
+    :class:`statsmodels.tsa.holtwinters.ExponentialSmoothing`, and it does not
+    support multiplicative (nonlinear) exponential smoothing models.
 
     However, as a subclass of the state space models, this model class shares
     a consistent set of functionality with those models, which can make it
@@ -603,6 +603,9 @@ class ExponentialSmoothing(MLEModel):
 
 
 class ExponentialSmoothingResults(MLEResults):
+    """
+    Results from fitting a linear exponential smoothing model
+    """
     def __init__(self, model, params, filter_results, cov_type=None,
                  **kwargs):
         super().__init__(model, params, filter_results, cov_type, **kwargs)

@@ -123,9 +123,9 @@ class RLM(base.LikelihoodModel):
         self.pinv_wexog = np.linalg.pinv(self.exog)
         self.normalized_cov_params = np.dot(self.pinv_wexog,
                                             np.transpose(self.pinv_wexog))
-        self.df_resid = (np.float(self.exog.shape[0] -
-                                  np.linalg.matrix_rank(self.exog)))
-        self.df_model = np.float(np.linalg.matrix_rank(self.exog) - 1)
+        self.df_resid = (float(self.exog.shape[0] -
+                               np.linalg.matrix_rank(self.exog)))
+        self.df_model = float(np.linalg.matrix_rank(self.exog) - 1)
         self.nobs = float(self.endog.shape[0])
 
     def score(self, params):
@@ -230,7 +230,7 @@ class RLM(base.LikelihoodModel):
             If `update_scale` is False then the scale estimate for the
             weights is held constant over the iteration.  Otherwise, it
             is updated for each fit in the iteration.  Default is True.
-        start_params : array-like, optional
+        start_params : array_like, optional
             Initial guess of the solution of the optimizer. If not provided,
             the initial parameters are computed using OLS.
 
@@ -407,7 +407,7 @@ class RLMResults(base.LikelihoodModelResults):
         self.nobs = model.nobs
         self._cache = {}
         # for remove_data
-        self.data_in_cache = ['sresid']
+        self._data_in_cache.extend(['sresid'])
 
         self.cov_params_default = self.bcov_scaled
         # TODO: "pvals" should come from chisq on bse?

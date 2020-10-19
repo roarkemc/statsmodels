@@ -1,5 +1,6 @@
-from statsmodels.iolib.table import SimpleTable
 import numpy as np
+
+from statsmodels.iolib.table import SimpleTable
 
 
 class HypothesisTestResults(object):
@@ -114,7 +115,7 @@ class CausalityTestResults(HypothesisTestResults):
         if len(self.causing) == 1:
             h0 += "{} does not ".format(self.causing[0])
         else:
-            h0 += "%s do not ".format(self.causing)
+            h0 += "{} do not ".format(self.causing)
         h0 += "Granger-" if self.test == "granger" else "instantaneously "
         h0 += "cause "
         if len(self.caused) == 1:

@@ -12,13 +12,13 @@ import pytest
 from scipy import stats
 
 import statsmodels.api as sm
-from statsmodels.genmod.generalized_linear_model import GLM
+from statsmodels.genmod.generalized_linear_model import GLM, SET_USE_BIC_LLF
 from statsmodels.tools.tools import add_constant
 from statsmodels.tools.sm_exceptions import PerfectSeparationError
 from statsmodels.discrete import discrete_model as discrete
 from statsmodels.tools.sm_exceptions import DomainWarning
 from statsmodels.tools.numdiff import approx_fprime, approx_hess
-from statsmodels.datasets import cpunish
+from statsmodels.datasets import cpunish, longley
 
 # Test Precisions
 DECIMAL_4 = 4
@@ -44,6 +44,13 @@ def close_or_save(pdf, fig):
 def teardown_module():
     if pdf_output:
         pdf.close()
+
+
+@pytest.fixture(scope="module")
+def iris():
+    cur_dir = os.path.dirname(os.path.abspath(__file__))
+    return np.genfromtxt(os.path.join(cur_dir, 'results', 'iris.csv'),
+                         delimiter=",", skip_header=1)
 
 
 class CheckModelResultsMixin(object):
@@ -150,8 +157,11 @@ class CheckModelResultsMixin(object):
 
     decimal_bic = DECIMAL_4
     def test_bic(self):
-        assert_almost_equal(self.res1.bic, self.res2.bic_Stata,
-                self.decimal_bic)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            assert_almost_equal(self.res1.bic,
+                                self.res2.bic_Stata,
+                                self.decimal_bic)
 
     def test_degrees(self):
         assert_equal(self.res1.model.df_resid,self.res2.df_resid)
@@ -397,7 +407,7 @@ class TestGlmBinomial(CheckModelResultsMixin):
         from statsmodels.datasets.star98 import load
         data = load(as_pandas=False)
         data.exog = add_constant(data.exog, prepend=False)
-        endog = data.endog.astype(np.int)
+        endog = data.endog.astype(int)
         res2 = GLM(endog, data.exog, family=sm.families.Binomial()).fit()
         assert_allclose(res2.params, self.res1.params)
         endog = data.endog.astype(np.double)
@@ -844,11 +854,14 @@ class TestGlmPoissonOffset(CheckModelResultsMixin):
         pred2 = mod3.predict(exog=exog1, offset=2*offset, linear=True)
         assert_almost_equal(pred2, pred1+offset)
 
+        # Passing exposure as a pandas series should not effect output type
+        assert isinstance(
+            mod1.predict(exog=exog1, exposure=pd.Series(exposure1)),
+            np.ndarray
+        )
 
-def test_perfect_pred():
-    cur_dir = os.path.dirname(os.path.abspath(__file__))
-    iris = np.genfromtxt(os.path.join(cur_dir, 'results', 'iris.csv'),
-                         delimiter=",", skip_header=1)
+
+def test_perfect_pred(iris):
     y = iris[:, -1]
     X = iris[:, :-1]
     X = X[y != 2]
@@ -1403,7 +1416,9 @@ class CheckWtdDuplicationMixin(object):
     decimal_bic = DECIMAL_4
 
     def test_bic(self):
-        assert_allclose(self.res1.bic, self.res2.bic,  atol=1e-6, rtol=1e-6)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            assert_allclose(self.res1.bic, self.res2.bic,  atol=1e-6, rtol=1e-6)
 
     decimal_fittedvalues = DECIMAL_4
 
@@ -1970,14 +1985,13 @@ def test_tweedie_EQL():
        rtol=1e-5, atol=1e-5)
 
     # Lasso fit using coordinate-wise descent
+    # TODO: The search gets trapped in an infinite oscillation, so use
+    # a slack convergence tolerance.
     model2 = sm.GLM(y, x, family=fam)
-    result2 = model2.fit_regularized(L1_wt=1, alpha=0.07)
-    import sys
-    ver = sys.version_info[0]
-    if ver >= 3:
-        rtol, atol = 1e-5, 1e-5
-    else:
-        rtol, atol = 1e-2, 1e-2
+    result2 = model2.fit_regularized(L1_wt=1, alpha=0.07, maxiter=200,
+                   cnvrg_tol=0.01)
+
+    rtol, atol = 1e-2, 1e-4
     assert_allclose(result2.params,
         np.array([1.00281192, -0.99182638, 0., 0.50448516]),
         rtol=rtol, atol=atol)
@@ -2319,3 +2333,71 @@ def test_non_invertible_hessian_fails_summary():
         mod = sm.GLM(data.endog, data.exog, family=sm.families.Gamma())
         res = mod.fit(maxiter=1, method='bfgs', max_start_irls=0)
         res.summary()
+
+
+def test_int_scale():
+    # GH-6627, make sure it works with int scale
+    data = longley.load(as_pandas=True)
+    mod = GLM(data.endog, data.exog, family=sm.families.Gaussian())
+    res = mod.fit(scale=1)
+    assert isinstance(res.params, pd.Series)
+    assert res.scale.dtype == np.float64
+
+
+@pytest.mark.parametrize("dtype", [np.int8, np.int16, np.int32, np.int64])
+def test_int_exog(dtype):
+    # GH-6627, make use of floats internally
+    count1, n1, count2, n2 = 60, 51477.5, 30, 54308.7
+    y = [count1, count2]
+    x = np.asarray([[1, 1], [1, 0]]).astype(dtype)
+    exposure = np.asarray([n1, n2])
+    mod = GLM(y, x, exposure=exposure, family=sm.families.Poisson())
+    res = mod.fit(method='bfgs', max_start_irls=0)
+    assert isinstance(res.params, np.ndarray)
+
+
+def test_glm_bic(iris):
+    X = np.c_[np.ones(100), iris[50:, :4]]
+    y = np.array(iris)[50:, 4].astype(np.int32)
+    y -= 1
+    SET_USE_BIC_LLF(True)
+    model = GLM(y, X, family=sm.families.Binomial()).fit()
+    # 34.9244 is what glm() of R yields
+    assert_almost_equal(model.bic, 34.9244, decimal=3)
+    assert_almost_equal(model.bic_llf, 34.9244, decimal=3)
+    SET_USE_BIC_LLF(False)
+    assert_almost_equal(model.bic, model.bic_deviance, decimal=3)
+    SET_USE_BIC_LLF(None)
+
+
+def test_glm_bic_warning(iris):
+    X = np.c_[np.ones(100), iris[50:, :4]]
+    y = np.array(iris)[50:, 4].astype(np.int32)
+    y -= 1
+    model = GLM(y, X, family=sm.families.Binomial()).fit()
+    with pytest.warns(FutureWarning, match="The bic"):
+        assert isinstance(model.bic, float)
+
+
+def test_output_exposure_null(reset_randomstate):
+    # GH 6953
+
+    x0 = [np.sin(i / 20) + 2 for i in range(1000)]
+    rs = np.random.RandomState(0)
+    # Variable exposures for each observation
+    exposure = rs.randint(100, 200, size=1000)
+    y = [np.sum(rs.poisson(x, size=e)) for x, e in zip(x0, exposure)]
+    x = add_constant(x0)
+
+    model = GLM(
+        endog=y, exog=x, exposure=exposure, family=sm.families.Poisson()
+    ).fit()
+    null_model = GLM(
+        endog=y, exog=x[:, 0], exposure=exposure, family=sm.families.Poisson()
+    ).fit()
+    null_model_without_exposure = GLM(
+        endog=y, exog=x[:, 0], family=sm.families.Poisson()
+    ).fit()
+    assert_allclose(model.llnull, null_model.llf)
+    # Check that they are different
+    assert np.abs(null_model_without_exposure.llf - model.llnull) > 1

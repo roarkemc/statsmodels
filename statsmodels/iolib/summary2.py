@@ -1,7 +1,5 @@
-from statsmodels.compat.python import (lrange, iterkeys, iteritems, lzip,
-                                       itervalues)
+from statsmodels.compat.python import lzip
 
-from collections import OrderedDict
 import datetime
 from functools import reduce
 import re
@@ -29,25 +27,26 @@ class Summary(object):
         return str(type(self)) + '\n"""\n' + self.__str__() + '\n"""'
 
     def _repr_html_(self):
-        '''Display as HTML in IPython notebook.'''
+        """Display as HTML in IPython notebook."""
         return self.as_html()
 
     def add_df(self, df, index=True, header=True, float_format='%.4f',
                align='r'):
-        '''Add the contents of a DataFrame to summary table
+        """
+        Add the contents of a DataFrame to summary table
 
         Parameters
         ----------
         df : DataFrame
-        header: bool
+        header : bool
             Reproduce the DataFrame column labels in summary table
-        index: bool
+        index : bool
             Reproduce the DataFrame row labels in summary table
         float_format : str
             Formatting to float data columns
         align : str
             Data alignment (l/c/r)
-        '''
+        """
 
         settings = {'index': index, 'header': header,
                     'float_format': float_format, 'align': align}
@@ -55,7 +54,7 @@ class Summary(object):
         self.settings.append(settings)
 
     def add_array(self, array, align='r', float_format="%.4f"):
-        '''Add the contents of a Numpy array to summary table
+        """Add the contents of a Numpy array to summary table
 
         Parameters
         ----------
@@ -64,28 +63,30 @@ class Summary(object):
             Formatting to array if type is float
         align : str
             Data alignment (l/c/r)
-        '''
+        """
 
         table = pd.DataFrame(array)
         self.add_df(table, index=False, header=False,
                     float_format=float_format, align=align)
 
     def add_dict(self, d, ncols=2, align='l', float_format="%.4f"):
-        '''Add the contents of a Dict to summary table
+        """Add the contents of a Dict to summary table
 
         Parameters
         ----------
         d : dict
             Keys and values are automatically coerced to strings with str().
             Users are encouraged to format them before using add_dict.
-        ncols: int
+        ncols : int
             Number of columns of the output table
         align : str
             Data alignment (l/c/r)
-        '''
+        float_format : str
+            Formatting to float data columns
+        """
 
-        keys = [_formatter(x, float_format) for x in iterkeys(d)]
-        vals = [_formatter(x, float_format) for x in itervalues(d)]
+        keys = [_formatter(x, float_format) for x in d.keys()]
+        vals = [_formatter(x, float_format) for x in d.values()]
         data = np.array(lzip(keys, vals))
 
         if data.shape[0] % ncols != 0:
@@ -97,17 +98,17 @@ class Summary(object):
         self.add_array(data, align=align)
 
     def add_text(self, string):
-        '''Append a note to the bottom of the summary table. In ASCII tables,
+        """Append a note to the bottom of the summary table. In ASCII tables,
         the note will be wrapped to table width. Notes are not indendented.
-        '''
+        """
         self.extra_txt.append(string)
 
     def add_title(self, title=None, results=None):
-        '''Insert a title on top of the summary table. If a string is provided
+        """Insert a title on top of the summary table. If a string is provided
         in the title argument, that string is printed. If no title string is
         provided but a results instance is provided, statsmodels attempts
         to construct a useful title automatically.
-        '''
+        """
         if isinstance(title, str):
             self.title = title
         else:
@@ -121,14 +122,14 @@ class Summary(object):
 
     def add_base(self, results, alpha=0.05, float_format="%.4f", title=None,
                  xname=None, yname=None):
-        '''Try to construct a basic summary instance.
+        """Try to construct a basic summary instance.
 
         Parameters
         ----------
         results : Model results instance
         alpha : float
             significance level for the confidence intervals (optional)
-        float_formatting: str
+        float_format: str
             Float formatting for summary of parameters (optional)
         title : str
             Title of the summary table (optional)
@@ -136,7 +137,7 @@ class Summary(object):
             Names of the independent variables (optional)
         yname : str
             Name of the dependent variable (optional)
-        '''
+        """
 
         param = summary_params(results, alpha=alpha, use_t=results.use_t)
         info = summary_model(results)
@@ -149,8 +150,8 @@ class Summary(object):
         self.add_title(title=title, results=results)
 
     def as_text(self):
-        '''Generate ASCII Summary Table
-        '''
+        """Generate ASCII Summary Table
+        """
 
         tables = self.tables
         settings = self.settings
@@ -173,7 +174,7 @@ class Summary(object):
         if title is not None:
             title = title
             if len(title) < widest:
-                title = ' ' * int(widest/2 - len(title)/2) + title
+                title = ' ' * int(widest / 2 - len(title) / 2) + title
         else:
             title = ''
 
@@ -186,8 +187,8 @@ class Summary(object):
         return out
 
     def as_html(self):
-        '''Generate HTML Summary Table
-        '''
+        """Generate HTML Summary Table
+        """
 
         tables = self.tables
         settings = self.settings
@@ -198,9 +199,15 @@ class Summary(object):
 
         return tab
 
-    def as_latex(self):
-        '''Generate LaTeX Summary Table
-        '''
+    def as_latex(self, label=''):
+        """Generate LaTeX Summary Table
+
+        Parameters
+        ----------
+        label : str
+            Label of the summary table that can be referenced
+            in a latex document (optional)
+        """
         tables = self.tables
         settings = self.settings
         title = self.title
@@ -210,9 +217,11 @@ class Summary(object):
         else:
             title = '\\caption{}'
 
+        label = '\\label{' + label + '}'
+
         simple_tables = _simple_tables(tables, settings)
         tab = [x.as_latex_tabular() for x in simple_tables]
-        tab = '\n\\hline\n'.join(tab)
+        tab = '\n\n'.join(tab)
 
         to_replace = ('\\\\hline\\n\\\\hline\\n\\\\'
                       'end{tabular}\\n\\\\begin{tabular}{.*}\\n')
@@ -221,17 +230,17 @@ class Summary(object):
             # create single tabular object for summary_col
             tab = re.sub(to_replace, r'\\midrule\n', tab)
 
-        out = '\\begin{table}', title, tab, '\\end{table}'
+        out = '\\begin{table}', title, label, tab, '\\end{table}'
         out = '\n'.join(out)
         return out
 
 
 def _measure_tables(tables, settings):
-    '''Compare width of ascii tables in a list and calculate padding values.
+    """Compare width of ascii tables in a list and calculate padding values.
     We add space to each col_sep to get us as close as possible to the
     width of the largest table. Then, we add a few spaces to the first
     column to pad the rest.
-    '''
+    """
 
     simple_tables = _simple_tables(tables, settings)
     tab = [x.as_text() for x in simple_tables]
@@ -263,14 +272,15 @@ _model_types = {'OLS': 'Ordinary least squares',
 
 
 def summary_model(results):
-    '''Create a dict with information about the model
-    '''
+    """
+    Create a dict with information about the model
+    """
 
     def time_now(*args, **kwds):
         now = datetime.datetime.now()
         return now.strftime('%Y-%m-%d %H:%M')
 
-    info = OrderedDict()
+    info = {}
     info['Model:'] = lambda x: x.model.__class__.__name__
     info['Model Family:'] = lambda x: x.family.__class.__name__
     info['Link Function:'] = lambda x: x.family.link.__class__.__name__
@@ -300,8 +310,8 @@ def summary_model(results):
     info['F-statistic:'] = lambda x: "%#8.4g" % x.fvalue
     info['Prob (F-statistic):'] = lambda x: "%#6.3g" % x.f_pvalue
     info['Scale:'] = lambda x: "%#8.5g" % x.scale
-    out = OrderedDict()
-    for key, func in iteritems(info):
+    out = {}
+    for key, func in info.items():
         try:
             out[key] = func(results)
         except (AttributeError, KeyError, NotImplementedError):
@@ -313,7 +323,7 @@ def summary_model(results):
 
 def summary_params(results, yname=None, xname=None, alpha=.05, use_t=True,
                    skip_header=False, float_format="%.4f"):
-    '''create a summary table of parameters from results instance
+    """create a summary table of parameters from results instance
 
     Parameters
     ----------
@@ -329,7 +339,7 @@ def summary_params(results, yname=None, xname=None, alpha=.05, use_t=True,
     use_t : bool
         indicator whether the p-values are based on the Student-t
         distribution (if True) or on the normal distribution (if False)
-    skip_headers : bool
+    skip_header : bool
         If false (default), then the header row is added. If true, then no
         header row is added.
     float_format : str
@@ -338,7 +348,7 @@ def summary_params(results, yname=None, xname=None, alpha=.05, use_t=True,
     Returns
     -------
     params_table : SimpleTable instance
-    '''
+    """
 
     if isinstance(results, tuple):
         results, params, bse, tvalues, pvalues, conf_int = results
@@ -355,10 +365,10 @@ def summary_params(results, yname=None, xname=None, alpha=.05, use_t=True,
 
     if use_t:
         data.columns = ['Coef.', 'Std.Err.', 't', 'P>|t|',
-                        '[' + str(alpha/2), str(1-alpha/2) + ']']
+                        '[' + str(alpha / 2), str(1 - alpha / 2) + ']']
     else:
         data.columns = ['Coef.', 'Std.Err.', 'z', 'P>|z|',
-                        '[' + str(alpha/2), str(1-alpha/2) + ']']
+                        '[' + str(alpha / 2), str(1 - alpha / 2) + ']']
 
     if not xname:
         try:
@@ -373,8 +383,8 @@ def summary_params(results, yname=None, xname=None, alpha=.05, use_t=True,
 
 # Vertical summary instance for multiple models
 def _col_params(result, float_format='%.4f', stars=True):
-    '''Stack coefficients and standard errors in single column
-    '''
+    """Stack coefficients and standard errors in single column
+    """
 
     # Extract parameters
     res = summary_params(result)
@@ -393,31 +403,24 @@ def _col_params(result, float_format='%.4f', stars=True):
         res.loc[idx, res.columns[0]] = res.loc[idx, res.columns[0]] + '*'
     # Stack Coefs and Std.Errors
     res = res.iloc[:, :2]
-    res = res.iloc[:, :2]
-    rsquared = rsquared_adj = np.nan
-    if hasattr(result, 'rsquared'):
-        rsquared = result.rsquared
-    if hasattr(result, 'rsquared_adj'):
-        rsquared_adj = result.rsquared_adj
-    r_result = pd.DataFrame({'Basic': [rsquared], 'Adj.': [rsquared_adj]},
-                            index=['R-squared'])
-    if not np.all(np.isnan(np.asarray(r_result))):
-        for col in r_result:
-            r_result[col] = r_result[col].apply(lambda x: float_format % x)
-        try:
-            res = pd.DataFrame(res).append(r_result, sort=True)
-        except TypeError:
-            # TODO: Remove when min pandas >= 0.23
-            res = pd.DataFrame(res).append(r_result)
     res = res.stack()
+
+    rsquared = getattr(result, 'rsquared', np.nan)
+    rsquared_adj = getattr(result, 'rsquared_adj', np.nan)
+    r2 = pd.Series({('R-squared', ""): rsquared,
+                    ('R-squared Adj.', ""): rsquared_adj})
+
+    if r2.notnull().any():
+        r2 = r2.apply(lambda x: float_format % x)
+        res = pd.concat([res, r2], axis=0)
     res = pd.DataFrame(res)
     res.columns = [str(result.model.endog_names)]
     return res
 
 
 def _col_info(result, info_dict=None):
-    '''Stack model info in a column
-    '''
+    """Stack model info in a column
+    """
 
     if info_dict is None:
         info_dict = {}
@@ -445,7 +448,7 @@ def _make_unique(list_of_names):
     header = []
     for _name in list_of_names:
         name_counter[_name] += "I"
-        header.append(_name+" " + name_counter[_name])
+        header.append(_name + " " + name_counter[_name])
     return header
 
 
@@ -465,7 +468,7 @@ def summary_col(results, float_format='%.4f', model_names=(), stars=False,
         unique, a roman number will be appended to all model names
     stars : bool
         print significance stars
-    info_dict : dict
+    info_dict : dict, default None
         dict of functions to be applied to results instances to retrieve
         model info. To use specific information for different models, add a
         (nested) info_dict with model name as the key.
@@ -505,21 +508,28 @@ def summary_col(results, float_format='%.4f', model_names=(), stars=False,
 
     if regressor_order:
         varnames = summ.index.get_level_values(0).tolist()
+        vc = pd.Series(varnames).value_counts()
+        varnames = vc.loc[vc == 2].index.tolist()
         ordered = [x for x in regressor_order if x in varnames]
-        unordered = [x for x in varnames if x not in regressor_order + ['']]
-        order = ordered + list(np.unique(unordered))
-
-        def f(idx):
-            return sum([[x + 'coef', x + 'stde'] for x in idx], [])
-
-        summ.index = f(pd.unique(varnames))
-        summ = summ.reindex(f(order))
-        summ.index = [x[:-4] for x in summ.index]
+        unordered = [x for x in varnames if x not in regressor_order]
+        new_order = ordered + unordered
+        other = [x for x in summ.index.get_level_values(0)
+                 if x not in new_order]
+        new_order += other
         if drop_omitted:
-            summ = summ.loc[regressor_order]
+            for uo in unordered:
+                new_order.remove(uo)
+        summ = summ.loc[new_order]
 
-    idx = pd.Series(lrange(summ.shape[0])) % 2 == 1
-    summ.index = np.where(idx, '', summ.index.get_level_values(0))
+    idx = []
+    index = summ.index.get_level_values(0)
+    for i in range(0, index.shape[0], 2):
+        idx.append(index[i])
+        if (i + 1) < index.shape[0] and (index[i] == index[i + 1]):
+            idx.append("")
+        else:
+            idx.append(index[i + 1])
+    summ.index = idx
 
     # add infos about the models.
     if info_dict:
@@ -580,6 +590,7 @@ def _df_to_simpletable(df, align='r', float_format="%.4f", header=True,
     st = SimpleTable(np.array(dat), headers=headers, stubs=stubs,
                      ltx_fmt=fmt_latex, txt_fmt=fmt_txt)
     st.output_formats['latex']['data_aligns'] = align
+    st.output_formats['latex']['header_align'] = align
     st.output_formats['txt']['data_aligns'] = align
     st.output_formats['txt']['table_dec_above'] = table_dec_above
     st.output_formats['txt']['table_dec_below'] = table_dec_below

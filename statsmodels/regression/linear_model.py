@@ -48,7 +48,7 @@ import statsmodels.base.wrapper as wrap
 from statsmodels.emplike.elregress import _ELRegOpts
 import warnings
 from statsmodels.tools.sm_exceptions import InvalidTestWarning
-
+from statsmodels.tools.validation import string_like
 # need import in module instead of lazily to copy `__doc__`
 from statsmodels.regression._prediction import PredictionResults
 from . import _prediction as pred
@@ -188,7 +188,7 @@ class RegressionModel(base.LikelihoodModel):
     """
     def __init__(self, endog, exog, **kwargs):
         super(RegressionModel, self).__init__(endog, exog, **kwargs)
-        self._data_attr.extend(['pinv_wexog', 'wendog', 'wexog', 'weights'])
+        self._data_attr.extend(['pinv_wexog', 'weights'])
 
     def initialize(self):
         """Initialize model components."""
@@ -615,6 +615,8 @@ class GLS(RegressionModel):
     def fit_regularized(self, method="elastic_net", alpha=0.,
                         L1_wt=1., start_params=None, profile_scale=False,
                         refit=False, **kwargs):
+        if not np.isscalar(alpha):
+            alpha = np.asarray(alpha)
         # Need to adjust since RSS/n term in elastic net uses nominal
         # n in denominator
         if self.sigma is not None:
@@ -792,7 +794,8 @@ class WLS(RegressionModel):
                         L1_wt=1., start_params=None, profile_scale=False,
                         refit=False, **kwargs):
         # Docstring attached below
-
+        if not np.isscalar(alpha):
+            alpha = np.asarray(alpha)
         # Need to adjust since RSS/n in elastic net uses nominal n in
         # denominator
         alpha = alpha * np.sum(self.weights) / len(self.weights)
@@ -834,25 +837,36 @@ class OLS(WLS):
     Examples
     --------
     >>> import statsmodels.api as sm
-    >>> Y = [1,3,4,5,2,3,4]
-    >>> X = range(1,8)
+    >>> import numpy as np
+    >>> duncan_prestige = sm.datasets.get_rdataset("Duncan", "carData")
+    >>> Y = duncan_prestige.data['income']
+    >>> X = duncan_prestige.data['education']
     >>> X = sm.add_constant(X)
     >>> model = sm.OLS(Y,X)
     >>> results = model.fit()
     >>> results.params
-    array([ 2.14285714,  0.25      ])
+    const        10.603498
+    education     0.594859
+    dtype: float64
 
     >>> results.tvalues
-    array([ 1.87867287,  0.98019606])
+    const        2.039813
+    education    6.892802
+    dtype: float64
 
     >>> print(results.t_test([1, 0]))
-    <T test: effect=array([ 2.14285714]), sd=array([[ 1.14062282]]), t=array([[ 1.87867287]]), p=array([[ 0.05953974]]), df_denom=5>
+                                 Test for Constraints
+    ==============================================================================
+                     coef    std err          t      P>|t|      [0.025      0.975]
+    ------------------------------------------------------------------------------
+    c0            10.6035      5.198      2.040      0.048       0.120      21.087
+    ==============================================================================
+
     >>> print(results.f_test(np.identity(2)))
-    <F test: F=array([[ 19.46078431]]), p=[[ 0.00437251]], df_denom=5, df_num=2>
+    <F test: F=array([[159.63031026]]), p=1.2607168903696672e-20, df_denom=43, df_num=2>
     """ % {'params': base._model_params_doc,
            'extra_params': base._missing_param_doc + base._extra_param_doc}
 
-    # TODO: change example to use datasets.  This was the point of datasets!
     def __init__(self, endog, exog=None, missing='none', hasconst=None,
                  **kwargs):
         super(OLS, self).__init__(endog, exog, missing=missing,
@@ -1140,6 +1154,7 @@ class OLS(WLS):
             params = q / sd
             params = np.dot(v, params)
         else:
+            alpha = np.asarray(alpha)
             vtav = self.nobs * np.dot(vt, alpha[:, None] * v)
             d = np.diag(vtav) + s2
             np.fill_diagonal(vtav, d)
@@ -1207,8 +1222,8 @@ class GLSAR(GLS):
     def __init__(self, endog, exog=None, rho=1, missing='none', hasconst=None,
                  **kwargs):
         # this looks strange, interpreting rho as order if it is int
-        if isinstance(rho, np.int):
-            self.order = rho
+        if isinstance(rho, (int, np.integer)):
+            self.order = int(rho)
             self.rho = np.zeros(self.order, np.float64)
         else:
             self.rho = np.squeeze(np.asarray(rho))
@@ -1319,12 +1334,12 @@ class GLSAR(GLS):
         return _x[self.order:]
 
 
-def yule_walker(x, order=1, method="unbiased", df=None, inv=False,
+def yule_walker(x, order=1, method="adjusted", df=None, inv=False,
                 demean=True):
     """
     Estimate AR(p) parameters from a sequence using the Yule-Walker equations.
 
-    Unbiased or maximum-likelihood estimator (mle)
+    Adjusted or maximum-likelihood estimator (mle)
 
     Parameters
     ----------
@@ -1333,10 +1348,10 @@ def yule_walker(x, order=1, method="unbiased", df=None, inv=False,
     order : int, optional
         The order of the autoregressive process.  Default is 1.
     method : str, optional
-       Method can be 'unbiased' or 'mle' and this determines
+       Method can be 'adjusted' or 'mle' and this determines
        denominator in estimate of autocorrelation function (ACF) at
-       lag k. If 'mle', the denominator is n=X.shape[0], if 'unbiased'
-       the denominator is n-k.  The default is unbiased.
+       lag k. If 'mle', the denominator is n=X.shape[0], if 'adjusted'
+       the denominator is n-k.  The default is adjusted.
     df : int, optional
        Specifies the degrees of freedom. If `df` is supplied, then it
        is assumed the X has `df` degrees of freedom rather than `n`.
@@ -1379,16 +1394,29 @@ def yule_walker(x, order=1, method="unbiased", df=None, inv=False,
     # TODO: define R better, look back at notes and technical notes on YW.
     # First link here is useful
     # http://www-stat.wharton.upenn.edu/~steele/Courses/956/ResourceDetails/YuleWalkerAndMore.htm
-    method = str(method).lower()
-    if method not in ["unbiased", "mle"]:
-        raise ValueError("ACF estimation method must be 'unbiased' or 'MLE'")
+
+    method = string_like(
+        method, "method", options=("adjusted", "unbiased", "mle")
+    )
+    if method == "unbiased":
+        warnings.warn(
+            "unbiased is deprecated in factor of adjusted to reflect that the "
+            "term is adjusting the sample size used in the autocovariance "
+            "calculation rather than estimating an unbiased autocovariance. "
+            "After release 0.13, using 'unbiased' will raise.",
+            FutureWarning,
+        )
+        method = "adjusted"
+
+    if method not in ("adjusted", "mle"):
+        raise ValueError("ACF estimation method must be 'adjusted' or 'MLE'")
     x = np.array(x, dtype=np.float64)
     if demean:
         x -= x.mean()
     n = df or x.shape[0]
 
     # this handles df_resid ie., n - p
-    adj_needed = method == "unbiased"
+    adj_needed = method == "adjusted"
 
     if x.ndim > 1 and x.shape[1] != 1:
         raise ValueError("expecting a vector to estimate AR parameters")
@@ -1526,6 +1554,8 @@ class RegressionResults(base.LikelihoodModelResults):
         super(RegressionResults, self).__init__(
             model, params, normalized_cov_params, scale)
 
+        # Keep wresid since needed by predict
+        self._data_in_cache.remove("wresid")
         self._cache = {}
         if hasattr(model, 'wexog_singular_values'):
             self._wexog_singular_values = model.wexog_singular_values
@@ -1767,8 +1797,8 @@ class RegressionResults(base.LikelihoodModelResults):
                     return np.nan
             ft = self.f_test(mat)
             # using backdoor to set another attribute that we already have
-            self._cache['f_pvalue'] = ft.pvalue
-            return ft.fvalue
+            self._cache['f_pvalue'] = float(ft.pvalue)
+            return float(ft.fvalue)
         else:
             # for standard homoscedastic case
             return self.mse_model/self.mse_resid
@@ -1835,6 +1865,10 @@ class RegressionResults(base.LikelihoodModelResults):
                    scale[:, None] * self.model.pinv_wexog.T)
         return H
 
+    def _abat_diagonal(self, a, b):
+        # equivalent to np.diag(a @ b @ a.T)
+        return np.einsum('ij,ik,kj->i', a, a, b)
+
     @cache_readonly
     def cov_HC0(self):
         """
@@ -1858,9 +1892,8 @@ class RegressionResults(base.LikelihoodModelResults):
         """
         Heteroscedasticity robust covariance matrix. See HC2_se.
         """
-        # probably could be optimized
         wexog = self.model.wexog
-        h = np.diag(wexog @ self.normalized_cov_params @ wexog.T)
+        h = self._abat_diagonal(wexog, self.normalized_cov_params)
         self.het_scale = self.wresid**2/(1-h)
         cov_HC2 = self._HCCM(self.het_scale)
         return cov_HC2
@@ -1871,7 +1904,7 @@ class RegressionResults(base.LikelihoodModelResults):
         Heteroscedasticity robust covariance matrix. See HC3_se.
         """
         wexog = self.model.wexog
-        h = np.diag(wexog @ self.normalized_cov_params @ wexog.T)
+        h = self._abat_diagonal(wexog, self.normalized_cov_params)
         self.het_scale = (self.wresid / (1 - h))**2
         cov_HC3 = self._HCCM(self.het_scale)
         return cov_HC3
@@ -1956,9 +1989,10 @@ class RegressionResults(base.LikelihoodModelResults):
         eps = np.finfo(self.wresid.dtype).eps
         if np.sqrt(self.scale) < 10 * eps * self.model.endog.mean():
             # do not divide if scale is zero close to numerical precision
-            from warnings import warn
-            warn("All residuals are 0, cannot compute normed residuals.",
-                 RuntimeWarning)
+            warnings.warn(
+                "All residuals are 0, cannot compute normed residuals.",
+                RuntimeWarning
+            )
             return self.wresid
         else:
             return self.wresid / np.sqrt(self.scale)
@@ -2306,7 +2340,12 @@ class RegressionResults(base.LikelihoodModelResults):
                   pvalues, f_pvalue, conf_int, and t_test and f_test, are
                   based on the number of groups minus one instead of the
                   total number of observations minus the number of explanatory
-                  variables. `df_resid` of the results instance is adjusted.
+                  variables. `df_resid` of the results instance is also
+                  adjusted. When `use_t` is also True, then pvalues are
+                  computed using the Student's t distribution using the
+                  corrected values. These may differ substantially from
+                  p-values based on the normal is the number of groups is
+                  sma...
                   If False, then `df_resid` of the results instance is not
                   adjusted.
 
@@ -2639,6 +2678,11 @@ class RegressionResults(base.LikelihoodModelResults):
 
         # add warnings/notes, added to text format only
         etext = []
+        if not self.k_constant:
+            etext.append(
+                "R² is computed without centering (uncentered) since the "
+                "model does not contain a constant."
+            )
         if hasattr(self, 'cov_type'):
             etext.append(self.cov_kwds['description'])
         if self.model.exog.shape[0] < self.model.exog.shape[1]:
@@ -2662,7 +2706,7 @@ class RegressionResults(base.LikelihoodModelResults):
         if etext:
             etext = ["[{0}] {1}".format(i + 1, text)
                      for i, text in enumerate(etext)]
-            etext.insert(0, "Warnings:")
+            etext.insert(0, "Notes:")
             smry.add_extra_txt(etext)
 
         return smry
@@ -2704,14 +2748,13 @@ class RegressionResults(base.LikelihoodModelResults):
                                                  omni_normtest,
                                                  durbin_watson)
 
-        from collections import OrderedDict
         jb, jbpv, skew, kurtosis = jarque_bera(self.wresid)
         omni, omnipv = omni_normtest(self.wresid)
         dw = durbin_watson(self.wresid)
         eigvals = self.eigenvals
         condno = self.condition_number
         eigvals = np.sort(eigvals)  # in increasing order
-        diagnostic = OrderedDict([
+        diagnostic = dict([
             ('Omnibus:',  "%.3f" % omni),
             ('Prob(Omnibus):', "%.3f" % omnipv),
             ('Skew:', "%.3f" % skew),

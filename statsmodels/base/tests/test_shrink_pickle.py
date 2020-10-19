@@ -19,7 +19,6 @@ from numpy import log  # noqa:F401
 
 import statsmodels.api as sm
 import statsmodels.genmod.generalized_linear_model as glm
-from statsmodels.compat.python import iterkeys
 
 
 def check_pickle(obj):
@@ -52,7 +51,7 @@ class RemoveDataPickle(object):
         pred1 = results.predict(xf, **pred_kwds)
         # create some cached attributes
         results.summary()
-        res = results.summary2()  # SMOKE test also summary2
+        results.summary2()  # SMOKE test also summary2
 
         # uncomment the following to check whether tests run (7 failures now)
         # np.testing.assert_equal(res, 1)
@@ -118,20 +117,20 @@ class RemoveDataPickle(object):
         fh.close()
         assert type(res_unpickled) is type(self.results)  # noqa: E721
 
-        before = sorted(iterkeys(self.results.__dict__))
-        after = sorted(iterkeys(res_unpickled.__dict__))
+        before = sorted(self.results.__dict__.keys())
+        after = sorted(res_unpickled.__dict__.keys())
         assert_(before == after, msg='not equal %r and %r' % (before, after))
 
-        before = sorted(iterkeys(self.results._results.__dict__))
-        after = sorted(iterkeys(res_unpickled._results.__dict__))
+        before = sorted(self.results._results.__dict__.keys())
+        after = sorted(res_unpickled._results.__dict__.keys())
         assert_(before == after, msg='not equal %r and %r' % (before, after))
 
-        before = sorted(iterkeys(self.results.model.__dict__))
-        after = sorted(iterkeys(res_unpickled.model.__dict__))
+        before = sorted(self.results.model.__dict__.keys())
+        after = sorted(res_unpickled.model.__dict__.keys())
         assert_(before == after, msg='not equal %r and %r' % (before, after))
 
-        before = sorted(iterkeys(self.results._cache))
-        after = sorted(iterkeys(res_unpickled._cache))
+        before = sorted(self.results._cache.keys())
+        after = sorted(res_unpickled._cache.keys())
         assert_(before == after, msg='not equal %r and %r' % (before, after))
 
 
@@ -237,8 +236,13 @@ class TestRemoveDataPickleGLM(RemoveDataPickle):
         for name in names:
             assert name in res._cache
             assert res._cache[name] is not None
+        import warnings
 
-        res.remove_data()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FutureWarning)
+            # FutureWarning for BIC changes
+            res.remove_data()
+
         for name in names:
             assert res._cache[name] is None
 
@@ -249,7 +253,7 @@ class TestRemoveDataPickleGLM(RemoveDataPickle):
         assert res._cache == {}
         with pytest.warns(FutureWarning, match="Anscombe residuals"):
             res.remove_data()
-        assert 'bic' in res._cache
+        assert 'aic' in res._cache
 
 
 class TestRemoveDataPickleGLMConstrained(RemoveDataPickle):

@@ -123,14 +123,14 @@ All three parameterizations can be packed into a vector by
 triangle or Cholesky square root of the dependence structure, followed
 by the variance parameters for the variance components.  The are
 stored as square roots if (and only if) the random effects covariance
-matrix is stored as its Choleky factor.  Note that when unpacking, it
+matrix is stored as its Cholesky factor.  Note that when unpacking, it
 is important to either square or reflect the dependence structure
 depending on which parameterization is being used.
 
 Two score methods are implemented.  One takes the score with respect
 to the elements of the random effects covariance matrix (used for
 inference once the MLE is reached), and the other takes the score with
-respect to the parameters of the Choleky square root of the random
+respect to the parameters of the Cholesky square root of the random
 effects covariance matrix (used for optimization).
 
 The numerical optimization uses GLS to avoid explicitly optimizing
@@ -142,19 +142,21 @@ likelihood function, so that calculation is not implemented here.
 Therefore, optimization methods requiring the Hessian matrix such as
 the Newton-Raphson algorithm cannot be used for model fitting.
 """
+import warnings
 
 import numpy as np
-import statsmodels.base.model as base
-from statsmodels.tools.decorators import cache_readonly
-from statsmodels.tools import data as data_tools
 from scipy.stats.distributions import norm
 from scipy import sparse
 import pandas as pd
 import patsy
-from collections import OrderedDict
-import warnings
-from statsmodels.tools.sm_exceptions import ConvergenceWarning
+
 from statsmodels.base._penalties import Penalty
+import statsmodels.base.model as base
+from statsmodels.tools.decorators import cache_readonly
+from statsmodels.tools import data as data_tools
+from statsmodels.tools.sm_exceptions import ConvergenceWarning
+
+_warn_cov_sing = "The random effects covariance matrix is singular."
 
 
 def _dot(x, y):
@@ -413,7 +415,10 @@ class MixedLMParams(object):
 
         if self.k_re > 0:
             if use_sqrt:
-                L = np.linalg.cholesky(self.cov_re)
+                try:
+                    L = np.linalg.cholesky(self.cov_re)
+                except np.linalg.LinAlgError:
+                    L = np.diag(np.sqrt(np.diag(self.cov_re)))
                 cpa = L[self._ix]
             else:
                 cpa = self.cov_re[self._ix]
@@ -473,24 +478,31 @@ def _smw_solver(s, A, AtA, Qi, di):
 
     # Use SMW identity
     qmat = AtA / s
-    if sparse.issparse(qmat):
-        qmat = qmat.todense()
     m = Qi.shape[0]
     qmat[0:m, 0:m] += Qi
-    d = qmat.shape[0]
-    qmat.flat[m*(d+1)::d+1] += di
-    if sparse.issparse(A):
-        qmati = sparse.linalg.spsolve(sparse.csc_matrix(qmat), A.T)
-    else:
-        qmati = np.linalg.solve(qmat, A.T)
 
     if sparse.issparse(A):
+        qmat[m:, m:] += sparse.diags(di)
+
         def solver(rhs):
-            ql = qmati.dot(rhs)
+            ql = A.T.dot(rhs)
+            # Based on profiling, the next line can be the
+            # majority of the entire run time of fitting the model.
+            ql = sparse.linalg.spsolve(qmat, ql)
+            if ql.ndim < rhs.ndim:
+                # spsolve squeezes nx1 rhs
+                ql = ql[:, None]
             ql = A.dot(ql)
             return rhs / s - ql / s**2
+
     else:
+        d = qmat.shape[0]
+        qmat.flat[m*(d+1)::d+1] += di
+        qmati = np.linalg.solve(qmat, A.T)
+
         def solver(rhs):
+            # A is tall and qmati is wide, so we want
+            # A * (qmati * rhs) not (A * qmati) * rhs
             ql = np.dot(qmati, rhs)
             ql = np.dot(A, ql)
             return rhs / s - ql / s**2
@@ -542,9 +554,22 @@ def _smw_logdet(s, A, AtA, Qi, di, B_logdet):
     qmat = AtA / s
     m = Qi.shape[0]
     qmat[0:m, 0:m] += Qi
-    d = qmat.shape[0]
-    qmat.flat[m*(d+1)::d+1] += di
-    _, ld1 = np.linalg.slogdet(qmat)
+
+    if sparse.issparse(qmat):
+        qmat[m:, m:] += sparse.diags(di)
+
+        # There are faster but much more difficult ways to do this
+        # https://stackoverflow.com/questions/19107617
+        lu = sparse.linalg.splu(qmat)
+        dl = lu.L.diagonal().astype(np.complex128)
+        du = lu.U.diagonal().astype(np.complex128)
+        ld1 = np.log(dl).sum() + np.log(du).sum()
+        ld1 = ld1.real
+    else:
+        d = qmat.shape[0]
+        qmat.flat[m*(d+1)::d+1] += di
+        _, ld1 = np.linalg.slogdet(qmat)
+
     return B_logdet + ld + ld1
 
 
@@ -801,10 +826,7 @@ class MixedLM(base.LikelihoodModel):
             a = self._augment_exog(i)
             self._aex_r.append(a)
 
-            # This matrix is not very sparse so convert it to dense.
             ma = _dot(a.T, a)
-            if sparse.issparse(ma):
-                ma = ma.todense()
             self._aex_r2.append(ma)
 
         # Precompute this
@@ -1111,7 +1133,7 @@ class MixedLM(base.LikelihoodModel):
             `ptol`.
         maxit : int
             The maximum number of iterations.
-        fit_kwargs : keywords
+        **fit_kwargs
             Additional keyword arguments passed to fit.
 
         Returns
@@ -1215,7 +1237,10 @@ class MixedLM(base.LikelihoodModel):
 
         # Get the Hessian including only the nonzero fixed effects,
         # then blow back up to the full size after inverting.
-        hess = self.hessian(params_prof)
+        hess, sing = self.hessian(params_prof)
+        if sing:
+            warnings.warn(_warn_cov_sing)
+
         pcov = np.nan * np.ones_like(hess)
         ii = np.abs(params_prof) > ceps
         ii[self.k_fe:] = True
@@ -1241,27 +1266,49 @@ class MixedLM(base.LikelihoodModel):
 
         return MixedLMResultsWrapper(results)
 
-    def get_fe_params(self, cov_re, vcomp):
+    def get_fe_params(self, cov_re, vcomp, tol=1e-10):
         """
         Use GLS to update the fixed effects parameter estimates.
 
         Parameters
         ----------
-        cov_re : array_like
+        cov_re : array_like (2d)
             The covariance matrix of the random effects.
+        vcomp : array_like (1d)
+            The variance components.
+        tol : float
+            A tolerance parameter to determine when covariances
+            are singular.
 
         Returns
         -------
-        The GLS estimates of the fixed effects parameters.
+        params : ndarray
+            The GLS estimates of the fixed effects parameters.
+        singular : bool
+            True if the covariance is singular
         """
 
         if self.k_fe == 0:
-            return np.array([])
+            return np.array([]), False
+
+        sing = False
 
         if self.k_re == 0:
             cov_re_inv = np.empty((0, 0))
         else:
-            cov_re_inv = np.linalg.inv(cov_re)
+            w, v = np.linalg.eigh(cov_re)
+            if w.min() < tol:
+                # Singular, use pseudo-inverse
+                sing = True
+                ii = np.flatnonzero(w >= tol)
+                if len(ii) == 0:
+                    cov_re_inv = np.zeros_like(cov_re)
+                else:
+                    vi = v[:, ii]
+                    wi = w[ii]
+                    cov_re_inv = np.dot(vi / wi, vi.T)
+            else:
+                cov_re_inv = np.linalg.inv(cov_re)
 
         # Cache these quantities that do not change.
         if not hasattr(self, "_endex_li"):
@@ -1275,15 +1322,29 @@ class MixedLM(base.LikelihoodModel):
         xtxy = 0.
         for group_ix, group in enumerate(self.group_labels):
             vc_var = self._expand_vcomp(vcomp, group_ix)
+            if vc_var.size > 0:
+                if vc_var.min() < tol:
+                    # Pseudo-inverse
+                    sing = True
+                    ii = np.flatnonzero(vc_var >= tol)
+                    vc_vari = np.zeros_like(vc_var)
+                    vc_vari[ii] = 1 / vc_var[ii]
+                else:
+                    vc_vari = 1 / vc_var
+            else:
+                vc_vari = np.empty(0)
             exog = self.exog_li[group_ix]
             ex_r, ex2_r = self._aex_r[group_ix], self._aex_r2[group_ix]
-            solver = _smw_solver(1., ex_r, ex2_r, cov_re_inv, 1 / vc_var)
+            solver = _smw_solver(1., ex_r, ex2_r, cov_re_inv, vc_vari)
             u = solver(self._endex_li[group_ix])
             xtxy += np.dot(exog.T, u)
 
-        fe_params = np.linalg.solve(xtxy[:, 0:-1], xtxy[:, -1])
+        if sing:
+            fe_params = np.dot(np.linalg.pinv(xtxy[:, 0:-1]), xtxy[:, -1])
+        else:
+            fe_params = np.linalg.solve(xtxy[:, 0:-1], xtxy[:, -1])
 
-        return fe_params
+        return fe_params, sing
 
     def _reparam(self):
         """
@@ -1434,7 +1495,9 @@ class MixedLM(base.LikelihoodModel):
 
         # Move to the profile set
         if profile_fe:
-            fe_params = self.get_fe_params(cov_re, vcomp)
+            fe_params, sing = self.get_fe_params(cov_re, vcomp)
+            if sing:
+                self._cov_sing += 1
         else:
             fe_params = params.fe_params
 
@@ -1442,7 +1505,8 @@ class MixedLM(base.LikelihoodModel):
             try:
                 cov_re_inv = np.linalg.inv(cov_re)
             except np.linalg.LinAlgError:
-                cov_re_inv = None
+                cov_re_inv = np.linalg.pinv(cov_re)
+                self._cov_sing += 1
             _, cov_re_logdet = np.linalg.slogdet(cov_re)
         else:
             cov_re_inv = np.zeros((0, 0))
@@ -1562,7 +1626,12 @@ class MixedLM(base.LikelihoodModel):
                 has_fe=False)
 
         if profile_fe:
-            params.fe_params = self.get_fe_params(params.cov_re, params.vcomp)
+            params.fe_params, sing = \
+                self.get_fe_params(params.cov_re, params.vcomp)
+
+            if sing:
+                msg = "Random effects covariance is singular"
+                warnings.warn(msg)
 
         if self.use_sqrt:
             score_fe, score_re, score_vc = self.score_sqrt(
@@ -1627,7 +1696,8 @@ class MixedLM(base.LikelihoodModel):
         try:
             cov_re_inv = np.linalg.inv(cov_re)
         except np.linalg.LinAlgError:
-            cov_re_inv = None
+            cov_re_inv = np.linalg.pinv(cov_re)
+            self._cov_sing += 1
 
         score_fe = np.zeros(self.k_fe)
         score_re = np.zeros(self.k_re2)
@@ -1801,6 +1871,9 @@ class MixedLM(base.LikelihoodModel):
         -------
         hess : 2d ndarray
             The Hessian matrix, evaluated at `params`.
+        sing : boolean
+            If True, the covariance matrix is singular and a
+            pseudo-inverse is returned.
         """
 
         if type(params) is not MixedLMParams:
@@ -1811,8 +1884,14 @@ class MixedLM(base.LikelihoodModel):
         fe_params = params.fe_params
         vcomp = params.vcomp
         cov_re = params.cov_re
+        sing = False
+
         if self.k_re > 0:
-            cov_re_inv = np.linalg.inv(cov_re)
+            try:
+                cov_re_inv = np.linalg.inv(cov_re)
+            except np.linalg.LinAlgError:
+                cov_re_inv = np.linalg.pinv(cov_re)
+                sing = True
         else:
             cov_re_inv = np.empty((0, 0))
 
@@ -1835,10 +1914,16 @@ class MixedLM(base.LikelihoodModel):
         for group_ix, group in enumerate(self.group_labels):
 
             vc_var = self._expand_vcomp(vcomp, group_ix)
+            vc_vari = np.zeros_like(vc_var)
+            ii = np.flatnonzero(vc_var >= 1e-10)
+            if len(ii) > 0:
+                vc_vari[ii] = 1 / vc_var[ii]
+            if len(ii) < len(vc_var):
+                sing = True
 
             exog = self.exog_li[group_ix]
             ex_r, ex2_r = self._aex_r[group_ix], self._aex_r2[group_ix]
-            solver = _smw_solver(1., ex_r, ex2_r, cov_re_inv, 1 / vc_var)
+            solver = _smw_solver(1., ex_r, ex2_r, cov_re_inv, vc_vari)
 
             # The residuals
             resid = self.endog_li[group_ix]
@@ -1940,7 +2025,7 @@ class MixedLM(base.LikelihoodModel):
         hess[self.k_fe:, 0:self.k_fe] = hess_fere
         hess[self.k_fe:, self.k_fe:] = hess_re
 
-        return hess
+        return hess, sing
 
     def get_scale(self, fe_params, cov_re, vcomp):
         """
@@ -1965,7 +2050,8 @@ class MixedLM(base.LikelihoodModel):
         try:
             cov_re_inv = np.linalg.inv(cov_re)
         except np.linalg.LinAlgError:
-            cov_re_inv = None
+            cov_re_inv = np.linalg.pinv(cov_re)
+            warnings.warn(_warn_cov_sing)
 
         qf = 0.
         for group_ix, group in enumerate(self.group_labels):
@@ -1995,7 +2081,7 @@ class MixedLM(base.LikelihoodModel):
 
     def fit(self, start_params=None, reml=True, niter_sa=0,
             do_cg=True, fe_pen=None, cov_pen=None, free=None,
-            full_output=False, method=None, **kwargs):
+            full_output=False, method=None, **fit_kwargs):
         """
         Fit a linear mixed model to the data.
 
@@ -2035,6 +2121,8 @@ class MixedLM(base.LikelihoodModel):
         method : str
             Optimization method.  Can be a scipy.optimize method name,
             or a list of such names to be tried in sequence.
+        **fit_kwargs
+            Additional keyword arguments passed to fit.
 
         Returns
         -------
@@ -2043,7 +2131,7 @@ class MixedLM(base.LikelihoodModel):
 
         _allowed_kwargs = ['gtol', 'maxiter', 'eps', 'maxcor', 'ftol',
                            'tol', 'disp', 'maxls']
-        for x in kwargs.keys():
+        for x in fit_kwargs.keys():
             if x not in _allowed_kwargs:
                 warnings.warn("Argument %s not used by MixedLM.fit" % x)
 
@@ -2060,7 +2148,7 @@ class MixedLM(base.LikelihoodModel):
         self.reml = reml
         self.cov_pen = cov_pen
         self.fe_pen = fe_pen
-
+        self._cov_sing = 0
         self._freepat = free
 
         if full_output:
@@ -2090,9 +2178,9 @@ class MixedLM(base.LikelihoodModel):
                     raise ValueError("invalid start_params")
 
         if do_cg:
-            kwargs["retall"] = hist is not None
-            if "disp" not in kwargs:
-                kwargs["disp"] = False
+            fit_kwargs["retall"] = hist is not None
+            if "disp" not in fit_kwargs:
+                fit_kwargs["disp"] = False
             packed = params.get_packed(use_sqrt=self.use_sqrt, has_fe=False)
 
             if niter_sa > 0:
@@ -2103,7 +2191,7 @@ class MixedLM(base.LikelihoodModel):
                 rslt = super(MixedLM, self).fit(start_params=packed,
                                                 skip_hessian=True,
                                                 method=method[j],
-                                                **kwargs)
+                                                **fit_kwargs)
                 if rslt.mle_retvals['converged']:
                     break
                 packed = rslt.params
@@ -2136,7 +2224,7 @@ class MixedLM(base.LikelihoodModel):
             params, self.k_fe, self.k_re, use_sqrt=self.use_sqrt, has_fe=False)
         cov_re_unscaled = params.cov_re
         vcomp_unscaled = params.vcomp
-        fe_params = self.get_fe_params(cov_re_unscaled, vcomp_unscaled)
+        fe_params, sing = self.get_fe_params(cov_re_unscaled, vcomp_unscaled)
         params.fe_params = fe_params
         scale = self.get_scale(fe_params, cov_re_unscaled, vcomp_unscaled)
         cov_re = scale * cov_re_unscaled
@@ -2152,7 +2240,10 @@ class MixedLM(base.LikelihoodModel):
         # Hessian with respect to the random effects covariance matrix
         # (not its square root).  It is used for obtaining standard
         # errors, not for optimization.
-        hess = self.hessian(params)
+        hess, sing = self.hessian(params)
+        if sing:
+            warnings.warn(_warn_cov_sing)
+
         hess_diag = np.diag(hess)
         if free is not None:
             pcov = np.zeros_like(hess)
@@ -2237,7 +2328,7 @@ class _mixedlm_distribution(object):
         self.vcomp = scale * po.vcomp
         self.scale = scale
 
-        group_idx = np.zeros(model.nobs, dtype=np.int)
+        group_idx = np.zeros(model.nobs, dtype=int)
         for k, g in enumerate(model.group_labels):
             group_idx[model.row_indices[g]] = k
         self.group_idx = group_idx
@@ -2572,7 +2663,7 @@ class MixedLMResults(base.LikelihoodModelResults, base.ResultMixin):
         from statsmodels.iolib import summary2
         smry = summary2.Summary()
 
-        info = OrderedDict()
+        info = {}
         info["Model:"] = "MixedLM"
         if yname is None:
             yname = self.model.endog_names
@@ -2682,7 +2773,7 @@ class MixedLMResults(base.LikelihoodModelResults, base.ResultMixin):
         return -2 * self.llf + np.log(self.nobs) * df
 
     def profile_re(self, re_ix, vtype, num_low=5, dist_low=1., num_high=5,
-                   dist_high=1.):
+                   dist_high=1., **fit_kwargs):
         """
         Profile-likelihood inference for variance parameters.
 
@@ -2708,6 +2799,8 @@ class MixedLMResults(base.LikelihoodModelResults, base.ResultMixin):
         dist_high : float
             The distance above the MLE of the parameter of interest to
             begin calculating points on the profile likelihood.
+        **fit_kwargs
+            Additional keyword arguments passed to fit.
 
         Returns
         -------
@@ -2805,7 +2898,8 @@ class MixedLMResults(base.LikelihoodModelResults, base.ResultMixin):
 
             # TODO should use fit_kwargs
             rslt = model.fit(start_params=params, free=free,
-                             reml=self.reml, cov_pen=self.cov_pen)._results
+                             reml=self.reml, cov_pen=self.cov_pen,
+                             **fit_kwargs)._results
             likev.append([x * rslt.scale, rslt.llf])
 
         likev = np.asarray(likev)

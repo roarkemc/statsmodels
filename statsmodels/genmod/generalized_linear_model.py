@@ -23,12 +23,14 @@ from . import families
 
 from statsmodels.tools.decorators import (cache_readonly,
                                           cached_data, cached_value)
+from statsmodels.tools.validation import float_like
 from statsmodels.compat.pandas import Appender
 
 import statsmodels.base.model as base
 import statsmodels.regression.linear_model as lm
 import statsmodels.base.wrapper as wrap
 import statsmodels.regression._tools as reg_tools
+import warnings
 
 from statsmodels.graphics._regressionplots_doc import (
     _plot_added_variable_doc,
@@ -51,6 +53,24 @@ __all__ = ['GLM', 'PredictionResults']
 def _check_convergence(criterion, iteration, atol, rtol):
     return np.allclose(criterion[iteration], criterion[iteration + 1],
                        atol=atol, rtol=rtol)
+
+
+# Remove after 0.13 when bic changes to bic llf
+class _ModuleVariable:
+    _value = None
+
+    @property
+    def use_bic_llf(self):
+        return self._value
+
+    def set_use_bic_llf(self, val):
+        if val not in (True, False, None):
+            raise ValueError("Must be True, False or None")
+        self._value = bool(val) if val is not None else val
+
+
+_use_bic_helper = _ModuleVariable()
+SET_USE_BIC_LLF = _use_bic_helper.set_use_bic_llf
 
 
 class GLM(base.LikelihoodModel):
@@ -270,11 +290,9 @@ class GLM(base.LikelihoodModel):
         if (family is not None) and not isinstance(family.link,
                                                    tuple(family.safe_links)):
 
-            import warnings
-            warnings.warn(("The %s link function does not respect the domain "
-                           "of the %s family.") %
-                          (family.link.__class__.__name__,
-                           family.__class__.__name__),
+            warnings.warn((f"The {type(family.link).__name__} link function "
+                           "does not respect the domain of the "
+                           f"{type(family).__name__} family."),
                           DomainWarning)
 
         if exposure is not None:
@@ -400,6 +418,7 @@ class GLM(base.LikelihoodModel):
         """
         Evaluate the log-likelihood for a generalized linear model.
         """
+        scale = float_like(scale, "scale")
         return self.family.loglike(self.endog, mu, self.var_weights,
                                    self.freq_weights, scale)
 
@@ -407,6 +426,7 @@ class GLM(base.LikelihoodModel):
         """
         Evaluate the log-likelihood for a generalized linear model.
         """
+        scale = float_like(scale, "scale", optional=True)
         lin_pred = np.dot(self.exog, params) + self._offset_exposure
         expval = self.family.link.inverse(lin_pred)
         if scale is None:
@@ -433,7 +453,7 @@ class GLM(base.LikelihoodModel):
             The first derivative of the loglikelihood function evaluated at
             params for each observation.
         """
-
+        scale = float_like(scale, "scale", optional=True)
         score_factor = self.score_factor(params, scale=scale)
         return score_factor[:, None] * self.exog
 
@@ -455,6 +475,7 @@ class GLM(base.LikelihoodModel):
             The first derivative of the loglikelihood function calculated as
             the sum of `score_obs`
         """
+        scale = float_like(scale, "scale", optional=True)
         score_factor = self.score_factor(params, scale=scale)
         return np.dot(score_factor, self.exog)
 
@@ -478,6 +499,7 @@ class GLM(base.LikelihoodModel):
             A 1d weight vector used in the calculation of the score_obs.
             The score_obs are obtained by `score_factor[:, None] * exog`
         """
+        scale = float_like(scale, "scale", optional=True)
         mu = self.predict(params)
         if scale is None:
             scale = self.estimate_scale(mu)
@@ -574,8 +596,8 @@ class GLM(base.LikelihoodModel):
                 observed = False
             else:
                 observed = True
-
-        tmp = getattr(self, '_tmp_like_exog', np.empty_like(self.exog))
+        scale = float_like(scale, "scale", optional=True)
+        tmp = getattr(self, '_tmp_like_exog', np.empty_like(self.exog, dtype=float))
 
         factor = self.hessian_factor(params, scale=scale, observed=observed)
         np.multiply(self.exog.T, factor, out=tmp.T)
@@ -585,6 +607,7 @@ class GLM(base.LikelihoodModel):
         """
         Fisher information matrix.
         """
+        scale = float_like(scale, "scale", optional=True)
         return self.hessian(params, scale=scale, observed=False)
 
     def _deriv_mean_dparams(self, params):
@@ -625,6 +648,7 @@ class GLM(base.LikelihoodModel):
             can is given by `score_factor0[:, None] * exog` where
             `score_factor0` is the score_factor without the residual.
         """
+        scale = float_like(scale, "scale", optional=True)
         mu = self.predict(params)
         if scale is None:
             scale = self.estimate_scale(mu)
@@ -864,7 +888,7 @@ class GLM(base.LikelihoodModel):
         elif exposure is None:
             exposure = 0.
         else:
-            exposure = np.log(exposure)
+            exposure = np.log(np.asarray(exposure))
 
         if exog is None:
             exog = self.exog
@@ -875,7 +899,7 @@ class GLM(base.LikelihoodModel):
         else:
             return self.family.fitted(linpred)
 
-    def get_distribution(self, params, scale=1, exog=None, exposure=None,
+    def get_distribution(self, params, scale=1., exog=None, exposure=None,
                          offset=None):
         """
         Return a random number generator for the predictive distribution.
@@ -903,7 +927,7 @@ class GLM(base.LikelihoodModel):
         to fit the model.  If any other value is used for ``n``, misleading
         results will be produced.
         """
-
+        scale = float_like(scale, "scale", optional=True)
         fit = self.predict(params, exog, exposure, offset, linear=False)
 
         import scipy.stats.distributions as dist
@@ -1017,6 +1041,20 @@ class GLM(base.LikelihoodModel):
         instance of the IRLS iteration is attached to the results instance
         as `results_wls` attribute.
         """
+        if isinstance(scale, str):
+            scale = scale.lower()
+            if scale not in ("x2", "dev"):
+                raise ValueError(
+                    "scale must be either X2 or dev when a string."
+                )
+        elif scale is not None:
+            # GH-6627
+            try:
+                scale = float(scale)
+            except Exception as exc:
+                raise type(exc)(
+                    "scale must be a float if given and no a string."
+                )
         self.scaletype = scale
 
         if method.lower() == "irls":
@@ -1027,7 +1065,7 @@ class GLM(base.LikelihoodModel):
                                   cov_kwds=cov_kwds, use_t=use_t, **kwargs)
         else:
             self._optim_hessian = kwargs.get('optim_hessian')
-            self._tmp_like_exog = np.empty_like(self.exog)
+            self._tmp_like_exog = np.empty_like(self.exog, dtype=float)
             fit_ = self._fit_gradient(start_params=start_params,
                                       method=method,
                                       maxiter=maxiter,
@@ -1088,9 +1126,8 @@ class GLM(base.LikelihoodModel):
         try:
             cov_p = np.linalg.inv(-self.hessian(rslt.params, observed=oim)) / scale
         except LinAlgError:
-            from warnings import warn
-            warn('Inverting hessian failed, no bse or cov_params '
-                 'available', HessianInversionWarning)
+            warnings.warn('Inverting hessian failed, no bse or cov_params '
+                          'available', HessianInversionWarning)
             cov_p = None
 
         results_class = getattr(self, '_results_class', GLMResults)
@@ -1129,7 +1166,7 @@ class GLM(base.LikelihoodModel):
         endog = self.endog
         wlsexog = self.exog
         if start_params is None:
-            start_params = np.zeros(self.exog.shape[1], np.float)
+            start_params = np.zeros(self.exog.shape[1])
             mu = self.family.starting_mu(self.endog)
             lin_pred = self.family.predict(mu)
         else:
@@ -1255,7 +1292,8 @@ class GLM(base.LikelihoodModel):
             Must be in [0, 1].  The L1 penalty has weight L1_wt and the
             L2 penalty has weight 1 - L1_wt.
         cnvrg_tol : float
-            Convergence threshold for line searches
+            Convergence threshold for maximum parameter change after
+            one sweep through all coefficients.
         zero_tol : float
             Coefficients below this threshold are treated as zero.
         """
@@ -1280,6 +1318,9 @@ class GLM(base.LikelihoodModel):
 
         self.mu = self.predict(result.params)
         self.scale = self.estimate_scale(self.mu)
+
+        if not result.converged:
+            warnings.warn("Elastic net fitting did not converge")
 
         return result
 
@@ -1439,8 +1480,7 @@ class GLMResults(base.LikelihoodModelResults):
         # for remove data and pickle without large arrays
         self._data_attr.extend(['results_constrained', '_freq_weights',
                                 '_var_weights', '_iweights'])
-        self.data_in_cache = getattr(self, 'data_in_cache', [])
-        self.data_in_cache.extend(['null', 'mu'])
+        self._data_in_cache.extend(['null', 'mu'])
         self._data_attr_model = getattr(self, '_data_attr_model', [])
         self._data_attr_model.append('mu')
 
@@ -1517,7 +1557,7 @@ class GLMResults(base.LikelihoodModelResults):
         provided. In a future version, the scaled residuals will be provided.
         """
         import warnings
-        warnings.warn('Anscombe residuals currently unscaled. In a future '
+        warnings.warn('Anscombe residuals currently unscaled. After the 0.12 '
                       'release, they will be scaled.', category=FutureWarning)
         return self.family.resid_anscombe(self._endog, self.fittedvalues,
                                           var_weights=self._var_weights,
@@ -1595,7 +1635,7 @@ class GLMResults(base.LikelihoodModelResults):
 
         kwargs = model._get_init_kwds()
         kwargs.pop('family')
-        if hasattr(self, '_offset_exposure'):
+        if hasattr(self.model, '_offset_exposure'):
             return GLM(endog, exog, family=self.family,
                        **kwargs).fit().fittedvalues
         else:
@@ -1655,19 +1695,69 @@ class GLMResults(base.LikelihoodModelResults):
     def aic(self):
         """
         Akaike Information Criterion
-        -2 * `llf` + 2*(`df_model` + 1)
+        -2 * `llf` + 2 * (`df_model` + 1)
         """
         return -2 * self.llf + 2 * (self.df_model + 1)
 
-    @cached_value
+    @property
     def bic(self):
         """
         Bayes Information Criterion
+
+        `deviance` - `df_resid` * log(`nobs`)
+
+        .. warning::
+
+            The current definition is base don the deviance rather than the
+            log-likelihood. This is not consistent with the AIC definition,
+            and after 0.13 both will make use of the log-likelihood definition.
+
+        Notes
+        -----
+        The log-likelihood version is defined
+        -2 * `llf` + (`df_model` + 1)*log(n)
+        """
+        if _use_bic_helper.use_bic_llf not in (True, False):
+            warnings.warn(
+                "The bic value is computed using the deviance formula. After "
+                "0.13 this will change to the log-likelihood based formula. "
+                "This change has no impact on the relative rank of models "
+                "compared using BIC. You can directly access the "
+                "log-likelihood version using the `bic_llf` attribute. You "
+                "can suppress this message by calling "
+                "statsmodels.genmod.generalized_linear_model.SET_USE_BIC_LLF "
+                "with True to get the LLF-based version now or False to retain"
+                "the deviance version.",
+                FutureWarning
+            )
+        if bool(_use_bic_helper.use_bic_llf):
+            return self.bic_llf
+
+        return self.bic_deviance
+
+    @cached_value
+    def bic_deviance(self):
+        """
+        Bayes Information Criterion
+
+        Based on the deviance,
         `deviance` - `df_resid` * log(`nobs`)
         """
         return (self.deviance -
                 (self.model.wnobs - self.df_model - 1) *
                 np.log(self.model.wnobs))
+
+    @cached_value
+    def bic_llf(self):
+        """
+        Bayes Information Criterion
+
+        Based on the log-likelihood,
+        -2 * `llf` + log(n) * (`df_model` + 1)
+        """
+        return -2*self.llf + (self.df_model+1)*np.log(
+            self.df_model+self.df_resid+1
+        )
 
     @Appender(pred.get_prediction_glm.__doc__)
     def get_prediction(self, exog=None, exposure=None, offset=None,
@@ -1896,8 +1986,10 @@ class GLMResults(base.LikelihoodModelResults):
         self.method = 'IRLS'
         from statsmodels.iolib import summary2
         smry = summary2.Summary()
-        smry.add_base(results=self, alpha=alpha, float_format=float_format,
-                      xname=xname, yname=yname, title=title)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FutureWarning)
+            smry.add_base(results=self, alpha=alpha, float_format=float_format,
+                          xname=xname, yname=yname, title=title)
         if hasattr(self, 'constraints'):
             smry.add_text('Model has been estimated subject to linear '
                           'equality constraints.')

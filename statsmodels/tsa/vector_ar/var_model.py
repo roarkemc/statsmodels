@@ -7,7 +7,7 @@ References
 Lütkepohl (2005) New Introduction to Multiple Time Series Analysis
 """
 from statsmodels.compat.pandas import deprecate_kwarg
-from statsmodels.compat.python import lrange, iteritems
+from statsmodels.compat.python import lrange
 
 from collections import defaultdict
 from io import StringIO
@@ -17,20 +17,25 @@ import pandas as pd
 import scipy.stats as stats
 
 import statsmodels.base.wrapper as wrap
-from statsmodels.tsa.base.tsa_model import (TimeSeriesModel,
-                                           TimeSeriesResultsWrapper)
-import statsmodels.tsa.tsatools as tsa
 from statsmodels.iolib.table import SimpleTable
 from statsmodels.tools.decorators import cache_readonly, deprecated_alias
 from statsmodels.tools.linalg import logdet_symm
 from statsmodels.tools.sm_exceptions import OutputWarning
-from statsmodels.tsa.tsatools import vec, unvec, duplication_matrix
+from statsmodels.tools.validation import array_like
+from statsmodels.tsa.base.tsa_model import (
+    TimeSeriesModel,
+    TimeSeriesResultsWrapper,
+)
+import statsmodels.tsa.tsatools as tsa
+from statsmodels.tsa.tsatools import duplication_matrix, unvec, vec
 from statsmodels.tsa.vector_ar import output, plotting, util
-from statsmodels.tsa.vector_ar.hypothesis_test_results import \
-    CausalityTestResults, NormalityTestResults, WhitenessTestResults
+from statsmodels.tsa.vector_ar.hypothesis_test_results import (
+    CausalityTestResults,
+    NormalityTestResults,
+    WhitenessTestResults,
+)
 from statsmodels.tsa.vector_ar.irf import IRAnalysis
 from statsmodels.tsa.vector_ar.output import VARSummary
-
 
 # -------------------------------------------------------------------------------
 # VAR process routines
@@ -578,7 +583,7 @@ class VAR(TimeSeriesModel):
 
         Parameters
         ----------
-        maxlags : int
+        maxlags : {int, None}, default None
             Maximum number of lags to check for order selection, defaults to
             12 * (nobs/100.)**(1./4), see select_order function
         method : {'ols'}
@@ -734,12 +739,24 @@ class VAR(TimeSeriesModel):
         -------
         selections : LagOrderResults
         """
+        ntrend = len(trend) if trend.startswith("c") else 0
+        max_estimable = (self.n_totobs - self.neqs - ntrend) // (1 + self.neqs)
         if maxlags is None:
             maxlags = int(round(12*(len(self.endog)/100.)**(1/4.)))
             # TODO: This expression shows up in a bunch of places, but
-            # in some it is `int` and in others `np.ceil`.  Also in some
-            # it multiplies by 4 instead of 12.  Let's put these all in
-            # one place and document when to use which variant.
+            #  in some it is `int` and in others `np.ceil`.  Also in some
+            #  it multiplies by 4 instead of 12.  Let's put these all in
+            #  one place and document when to use which variant.
+
+            # Ensure enough obs to estimate model with maxlags
+            maxlags = min(maxlags, max_estimable)
+        else:
+            if maxlags > max_estimable:
+                raise ValueError(
+                    "maxlags is too large for the number of observations and "
+                    "the number of equations. The largest model cannot be "
+                    "estimated."
+                )
 
         ics = defaultdict(list)
         p_min = 0 if self.exog is not None or trend != "nc" else 1
@@ -748,13 +765,21 @@ class VAR(TimeSeriesModel):
             # order
             result = self._estimate_var(p, offset=maxlags - p, trend=trend)
 
-            for k, v in iteritems(result.info_criteria):
+            for k, v in result.info_criteria.items():
                 ics[k].append(v)
 
         selected_orders = dict((k, np.array(v).argmin() + p_min)
-                               for k, v in iteritems(ics))
+                               for k, v in ics.items())
 
         return LagOrderResults(ics, selected_orders, vecm=False)
+
+    @classmethod
+    def from_formula(cls, formula, data, subset=None, drop_cols=None,
+                     *args, **kwargs):
+        """
+        Not implemented. Formulas are not supported for VAR models.
+        """
+        raise NotImplementedError("formulas are not supported for VAR models.")
 
 
 class VARProcess(object):
@@ -1030,6 +1055,15 @@ class VARProcess(object):
         if self.exog is not None and exog_future is None:
             raise ValueError("Please provide an exog_future argument to "
                              "the forecast method.")
+
+        exog_future = array_like(exog_future, "exog_future", optional=True, ndim=2)
+        if exog_future is not None:
+            if exog_future.shape[0] != steps:
+                err_msg = f"""\
+exog_future only has {exog_future.shape[0]} observations. It must have \
+steps ({steps}) observations.
+"""
+                raise ValueError(err_msg)
         trend_coefs = None if self.coefs_exog.size == 0 else self.coefs_exog.T
 
         exogs = []
@@ -1525,19 +1559,19 @@ class VARResults(VARProcess):
 
         Parameters
         ----------
-        orth: bool, default False
+        orth : bool, default False
             Compute orthogonalized impulse response error bands
-        repl: int
+        repl : int
             number of Monte Carlo replications to perform
-        steps: int, default 10
+        steps : int, default 10
             number of impulse response periods
-        signif: float (0 < signif <1)
+        signif : float (0 < signif <1)
             Significance level for error bars, defaults to 95% CI
-        seed: int
+        seed : int
             np.random.seed for replications
-        burn: int
+        burn : int
             number of initial observations to discard for simulation
-        cum: bool, default False
+        cum : bool, default False
             produce cumulative irf error bands
 
         Notes
@@ -1568,19 +1602,19 @@ class VARResults(VARProcess):
 
         Parameters
         ----------
-        orth: bool, default False
+        orth : bool, default False
             Compute orthogonalized impulse response error bands
-        repl: int
+        repl : int
             number of Monte Carlo replications to perform
-        steps: int, default 10
+        steps : int, default 10
             number of impulse response periods
-        signif: float (0 < signif <1)
+        signif : float (0 < signif <1)
             Significance level for error bars, defaults to 95% CI
-        seed: int
+        seed : int
             np.random.seed for replications
-        burn: int
+        burn : int
             number of initial observations to discard for simulation
-        cum: bool, default False
+        cum : bool, default False
             produce cumulative irf error bands
 
         Notes
@@ -1598,6 +1632,7 @@ class VARResults(VARProcess):
         sigma_u = self.sigma_u
         intercept = self.intercept
         nobs = self.nobs
+        nobs_original = nobs + k_ar
 
         ma_coll = np.zeros((repl, steps + 1, neqs, neqs))
 
@@ -1609,7 +1644,7 @@ class VARResults(VARProcess):
         for i in range(repl):
             # discard first burn to eliminate correct for starting bias
             sim = util.varsim(coefs, intercept, sigma_u,
-                              seed=seed, steps=nobs+burn)
+                              seed=seed, steps=nobs_original+burn)
             sim = sim[burn:]
             ma_coll[i, :, :, :] = fill_coll(sim)
 
@@ -1959,12 +1994,17 @@ class VARResults(VARProcess):
         Parameters
         ----------
         nlags : int > 0
+            The number of lags tested must be larger than the number of lags
+            included in the VAR model.
         signif : float, between 0 and 1
+            The significance level of the test.
         adjusted : bool, default False
+            Flag indicating to apply small-sample adjustments.
 
         Returns
         -------
-        results : WhitenessTestResults
+        WhitenessTestResults
+            The test results.
 
         Notes
         -----
@@ -1975,6 +2015,10 @@ class VARResults(VARProcess):
         ----------
         .. [1] Lütkepohl, H. 2005. *New Introduction to Multiple Time Series Analysis*. Springer.
         """
+        if nlags - self.k_ar <= 0:
+            raise ValueError("The whiteness test can only be used when nlags "
+                             "is larger than the number of lags included in "
+                             f"the model ({self.k_ar}).")
         statistic = 0
         u = np.asarray(self.resid)
         acov_list = _compute_acov(u, nlags)
@@ -2005,7 +2049,7 @@ class VARResults(VARProcess):
         ----------
         nlags : int
             number of lags to display (excluding 0)
-        resid: bool
+        resid : bool
             If True, then the autocorrelation of the residuals is plotted
             If False, then the autocorrelation of endog is plotted.
         linewidth : int
@@ -2263,8 +2307,8 @@ def _acovs_to_acorrs(acovs):
 
 
 if __name__ == '__main__':
-    from statsmodels.tsa.vector_ar.util import parse_lutkepohl_data
     import statsmodels.tools.data as data_util
+    from statsmodels.tsa.vector_ar.util import parse_lutkepohl_data
 
     np.set_printoptions(linewidth=140, precision=5)
 

@@ -7,7 +7,6 @@ import numpy as np
 import numpy.linalg as la
 import scipy.linalg as L
 
-
 from statsmodels.tools.decorators import cache_readonly
 import statsmodels.tsa.tsatools as tsa
 import statsmodels.tsa.vector_ar.plotting as plotting
@@ -87,10 +86,10 @@ class BaseIRAnalysis(object):
     def cum_effect_cov(self, *args, **kwargs):
         raise NotImplementedError
 
-    def plot(self, orth=False, impulse=None, response=None,
-             signif=0.05, plot_params=None, subplot_params=None,
-             plot_stderr=True, stderr_type='asym', repl=1000,
-             seed=None, component=None):
+    def plot(self, orth=False, *, impulse=None, response=None,
+             signif=0.05, plot_params=None, figsize=(10, 10),
+             subplot_params=None, plot_stderr=True, stderr_type='asym',
+             repl=1000, seed=None, component=None):
         """
         Plot impulse responses
 
@@ -109,14 +108,16 @@ class BaseIRAnalysis(object):
             pass {'fontsize' : 8} or some number to your taste.
         plot_params : dict
 
-        plot_stderr: bool, default True
+        figsize : (float, float), default (10, 10)
+            Figure size (width, height in inches)
+        plot_stderr : bool, default True
             Plot standard impulse response error bands
-        stderr_type: str
+        stderr_type : str
             'asym': default, computes asymptotic standard errors
             'mc': monte carlo standard errors (use rpl)
-        repl: int, default 1000
+        repl : int, default 1000
             Number of replications for Monte Carlo and Sims-Zha standard errors
-        seed: int
+        seed : int
             np.random.seed for Monte Carlo replications
         component: array or vector of principal component indices
         """
@@ -167,11 +168,12 @@ class BaseIRAnalysis(object):
                                      self.model.names, title, signif=signif,
                                      subplot_params=subplot_params,
                                      plot_params=plot_params,
+                                     figsize=figsize,
                                      stderr_type=stderr_type)
         return fig
 
-    def plot_cum_effects(self, orth=False, impulse=None, response=None,
-                         signif=0.05, plot_params=None,
+    def plot_cum_effects(self, orth=False, *, impulse=None, response=None,
+                         signif=0.05, plot_params=None, figsize=(10, 10),
                          subplot_params=None, plot_stderr=True,
                          stderr_type='asym', repl=1000, seed=None):
         """
@@ -192,14 +194,16 @@ class BaseIRAnalysis(object):
             pass {'fontsize' : 8} or some number to your taste.
         plot_params : dict
 
-        plot_stderr: bool, default True
+        figsize: (float, float), default (10, 10)
+            Figure size (width, height in inches)
+        plot_stderr : bool, default True
             Plot standard impulse response error bands
-        stderr_type: str
+        stderr_type : str
             'asym': default, computes asymptotic standard errors
             'mc': monte carlo standard errors (use rpl)
-        repl: int, default 1000
+        repl : int, default 1000
             Number of replications for monte carlo standard errors
-        seed: int
+        seed : int
             np.random.seed for Monte Carlo replications
         """
 
@@ -228,6 +232,7 @@ class BaseIRAnalysis(object):
                                      hlines=lr_effects,
                                      subplot_params=subplot_params,
                                      plot_params=plot_params,
+                                     figsize=figsize,
                                      stderr_type=stderr_type)
         return fig
 

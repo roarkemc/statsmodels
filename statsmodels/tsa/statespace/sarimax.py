@@ -50,8 +50,8 @@ class SARIMAX(MLEModel):
     seasonal_order : iterable, optional
         The (P,D,Q,s) order of the seasonal component of the model for the
         AR parameters, differences, MA parameters, and periodicity.
-        `d` must be an integer indicating the integration order of the process,
-        while `p` and `q` may either be an integers indicating the AR and MA
+        `D` must be an integer indicating the integration order of the process,
+        while `P` and `Q` may either be an integers indicating the AR and MA
         orders (so that all lags up to those orders are included) or else
         iterables giving specific AR and / or MA lags to include. `s` is an
         integer giving the periodicity (number of periods in season), often it
@@ -62,9 +62,9 @@ class SARIMAX(MLEModel):
         Can be specified as a string where 'c' indicates a constant (i.e. a
         degree zero component of the trend polynomial), 't' indicates a
         linear trend with time, and 'ct' is both. Can also be specified as an
-        iterable defining the polynomial as in `numpy.poly1d`, where
-        `[1,1,0,1]` would denote :math:`a + bt + ct^3`. Default is to not
-        include a trend component.
+        iterable defining the non-zero polynomial exponents to include, in
+        increasing order. For example, `[1,1,0,1]` denotes
+        :math:`a + bt + ct^3`. Default is to not include a trend component.
     measurement_error : bool, optional
         Whether or not to assume the endogenous observations `endog` were
         measured with error. Default is False.
@@ -150,24 +150,23 @@ class SARIMAX(MLEModel):
         trend polynomial :math:`A(t)`. See the class
         parameter documentation for more information.
     polynomial_ar : ndarray
-        Array containing autoregressive lag polynomial
-        coefficients, ordered from lowest degree to highest.
-        Initialized with ones, unless a coefficient is
-        constrained to be zero (in which case it is zero).
+        Array containing autoregressive lag polynomial lags, ordered from
+        lowest degree to highest. The polynomial begins with lag 0.
+        Initialized with ones, unless a coefficient is constrained to be
+        zero (in which case it is zero).
     polynomial_ma : ndarray
-        Array containing moving average lag polynomial
-        coefficients, ordered from lowest degree to highest.
-        Initialized with ones, unless a coefficient is
-        constrained to be zero (in which case it is zero).
+        Array containing moving average lag polynomial lags, ordered from
+        lowest degree to highest. Initialized with ones, unless a coefficient
+        is constrained to be zero (in which case it is zero).
     polynomial_seasonal_ar : ndarray
         Array containing seasonal moving average lag
-        polynomial coefficients, ordered from lowest degree
+        polynomial lags, ordered from lowest degree
         to highest. Initialized with ones, unless a
         coefficient is constrained to be zero (in which
         case it is zero).
     polynomial_seasonal_ma : ndarray
         Array containing seasonal moving average lag
-        polynomial coefficients, ordered from lowest degree
+        polynomial lags, ordered from lowest degree
         to highest. Initialized with ones, unless a
         coefficient is constrained to be zero (in which
         case it is zero).
@@ -323,13 +322,14 @@ class SARIMAX(MLEModel):
                  enforce_stationarity=True, enforce_invertibility=True,
                  hamilton_representation=False, concentrate_scale=False,
                  trend_offset=1, use_exact_diffuse=False, dates=None,
-                 freq=None, missing='none', **kwargs):
+                 freq=None, missing='none', validate_specification=True,
+                 **kwargs):
 
         self._spec = SARIMAXSpecification(
             endog, exog=exog, order=order, seasonal_order=seasonal_order,
             trend=trend, enforce_stationarity=None, enforce_invertibility=None,
             concentrate_scale=concentrate_scale, dates=dates, freq=freq,
-            missing=missing)
+            missing=missing, validate_specification=validate_specification)
         self._params = SARIMAXParams(self._spec)
 
         # Save given orders
@@ -898,7 +898,10 @@ class SARIMAX(MLEModel):
             params_ma = params[offset:k_params_ma + offset]
             offset += k_params_ma
         if residuals is not None:
-            params_variance = (residuals[k_params_ma:]**2).mean()
+            if len(residuals) > 1:
+                params_variance = (residuals[k_params_ma:] ** 2).mean()
+            else:
+                params_variance = np.var(endog)
 
         return (params_trend, params_ar, params_ma,
                 params_variance)
@@ -1084,7 +1087,7 @@ class SARIMAX(MLEModel):
         """
         List of parameters actually included in the model, in sorted order.
 
-        TODO Make this an OrderedDict with slice or indices as the values.
+        TODO Make this an dict with slice or indices as the values.
         """
         model_orders = self.model_orders
         # Get basic list from model orders
@@ -1732,10 +1735,11 @@ class SARIMAX(MLEModel):
         if not self.simple_differencing and self._k_trend > 0:
             extend_kwargs.setdefault(
                 'trend_offset', self.trend_offset + self.nobs)
+        extend_kwargs.setdefault('validate_specification', False)
         mod_extend = self.clone(
             endog=tmp_endog, exog=tmp_exog, **extend_kwargs)
         mod_extend.update(params, transformed=transformed,
-                          includes_fixed=includes_fixed)
+                          includes_fixed=includes_fixed,)
 
         # Retrieve the extensions to the time-varying system matrices
         # and put them in kwargs

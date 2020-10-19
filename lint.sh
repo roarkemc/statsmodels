@@ -16,7 +16,8 @@ if [ "$LINT" == true ]; then
     # Run with --isolated to ignore config files, the files included here
     # pass _all_ flake8 checks
     echo "Linting known clean files with strict rules"
-    flake8 --isolated \
+    # Default flake8 rules plus the additional rules from setup.cfg
+    flake8 --isolated --ignore=E121,E123,E126,E226,E24,E704,W503,W504,E741,E203 \
         examples/ \
         setup.py \
         statsmodels/__init__.py \
@@ -115,6 +116,7 @@ if [ "$LINT" == true ]; then
         statsmodels/multivariate/tests/results/ \
         statsmodels/nonparametric/__init__.py \
         statsmodels/nonparametric/api.py \
+        statsmodels/nonparametric/kde.py \
         statsmodels/nonparametric/tests/results/ \
         statsmodels/regression/__init__.py \
         statsmodels/regression/_prediction.py \
@@ -131,7 +133,6 @@ if [ "$LINT" == true ]; then
         statsmodels/regression/tests/test_quantile_regression.py \
         statsmodels/regression/tests/test_rolling.py \
         statsmodels/regression/tests/test_tools.py \
-        statsmodels/resampling/ \
         statsmodels/robust/ \
         statsmodels/sandbox/__init__.py \
         statsmodels/sandbox/distributions/__init__.py \
@@ -144,7 +145,6 @@ if [ "$LINT" == true ]; then
         statsmodels/sandbox/regression/tests/results_gmm_poisson.py \
         statsmodels/sandbox/regression/tests/results_ivreg2_griliches.py \
         statsmodels/sandbox/stats/__init__.py \
-        statsmodels/sandbox/stats/ex_multicomp.py \
         statsmodels/sandbox/stats/tests/ \
         statsmodels/src/ \
         statsmodels/stats/__init__.py \
@@ -220,7 +220,6 @@ if [ "$LINT" == true ]; then
         statsmodels/tsa/tests/test_x13.py \
         statsmodels/tsa/vector_ar/__init__.py \
         statsmodels/tsa/vector_ar/api.py \
-        statsmodels/tsa/vector_ar/dynamic.py \
         statsmodels/tsa/vector_ar/hypothesis_test_results.py \
         statsmodels/tsa/vector_ar/tests/JMulTi_results/ \
         statsmodels/tsa/vector_ar/tests/Matlab_results/ \
@@ -244,7 +243,7 @@ if [ "$LINT" == true ]; then
     if [ -n "$NEW_FILES" ]; then
         echo "Linting newly added files with strict rules"
         echo "New files: $NEW_FILES"
-        flake8 --isolated $(eval echo $NEW_FILES)
+        flake8 --isolated --ignore=E121,E123,E126,E226,E24,E704,W503,W504,E741,E203 $(eval echo $NEW_FILES)
         if [ $? -ne "0" ]; then
             echo "New files failed linting."
             RET=1

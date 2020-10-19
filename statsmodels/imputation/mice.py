@@ -166,6 +166,17 @@ class MICEData(object):
         MICEData object is passed as the sole argument to
         `history_callback`.
 
+    Notes
+    -----
+    Allowed perturbation methods are 'gaussian' (the model parameters
+    are set to a draw from the Gaussian approximation to the posterior
+    distribution), and 'boot' (the model parameters are set to the
+    estimated values obtained when fitting a bootstrapped version of
+    the data set).
+
+    `history_callback` can be implemented to have side effects such as
+    saving the current imputed data set to disk.
+
     Examples
     --------
     Draw 20 imputations from a data set called `data` and save them in
@@ -179,17 +190,6 @@ class MICEData(object):
     Impute using default models, using the MICEData object as an
     iterator.
     %(_mice_data_example_2)s
-
-    Notes
-    -----
-    Allowed perturbation methods are 'gaussian' (the model parameters
-    are set to a draw from the Gaussian approximation to the posterior
-    distribution), and 'boot' (the model parameters are set to the
-    estimated values obtained when fitting a bootstrapped version of
-    the data set).
-
-    `history_callback` can be implemented to have side effects such as
-    saving the current imputed data set to disk.
     """ % {'_mice_data_example_1': _mice_data_example_1,
            '_mice_data_example_2': _mice_data_example_2}
 
@@ -1303,12 +1303,11 @@ class MICEResults(LikelihoodModelResults):
         """
 
         from statsmodels.iolib import summary2
-        from collections import OrderedDict
 
         smry = summary2.Summary()
         float_format = "%8.3f"
 
-        info = OrderedDict()
+        info = {}
         info["Method:"] = "MICE"
         info["Model:"] = self.model_class.__name__
         info["Dependent variable:"] = self.endog_names
